@@ -395,17 +395,58 @@ Mina skript beskriver steg för steg vad som ska hända. Det är därför jag ha
 
 Du behöver PowerShell 7, AWS CLI version 2, en IAM-användare som får skapa EC2-resurser och ett key pair i regionen.
 
+**1. Hämta repot**
+
+Klona repot och gå in i mappen för v42, där skripten ligger:
+
 ```powershell
 git clone https://github.com/80idralt/aws.git
 cd aws\v42
-aws configure set region eu-north-1
-aws login
-.\deploy.ps1
-curl.exe -I http://13.51.198.120
-.\destroy.ps1
 ```
 
-Byt IP-adressen i `curl` mot den som deploy skriver ut. Vänta en minut eller två innan du testar. Svaret ska vara `200 OK`.
+**2. Välj region**
+
+Skripten skapar allt i den region AWS CLI är inställd på. Jag använder Stockholm:
+
+```powershell
+aws configure set region eu-north-1
+```
+
+Det här behöver bara göras en gång per dator.
+
+**3. Logga in**
+
+En webbläsare öppnas där du loggar in med din IAM-användare. Inloggningen gäller några timmar. Om ett kommando senare säger att sessionen har gått ut kör du det här igen.
+
+```powershell
+aws login
+```
+
+**4. Bygg miljön**
+
+Skriptet skapar security groupen och startar servern. När det är klart skriver det ut serverns adress.
+
+```powershell
+.\deploy.ps1
+```
+
+**5. Kontrollera att sidan svarar**
+
+Vänta en minut eller två så att user data hinner installera allt. Byt sedan IP-adressen nedan mot den som deploy skrev ut:
+
+```powershell
+curl.exe -I http://13.51.198.120
+```
+
+Svaret ska börja med `HTTP/1.1 200 OK`. Du kan också öppna adressen i webbläsaren och se Novatrix-sidan.
+
+**6. Riv miljön**
+
+När du är klar tar du bort servern och security groupen så att inget fortsätter att kosta:
+
+```powershell
+.\destroy.ps1
+```
 
 Om någon annan ska köra det här finns det tre saker att ändra:
 
