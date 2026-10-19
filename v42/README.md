@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-10-15
+**Datum:** 2026-10-19
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v42
 
