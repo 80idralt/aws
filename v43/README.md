@@ -95,6 +95,8 @@ Det finns en stjärna i båda reglerna, för att få se servrar. Läraren säger
 
 Jag valde bort AWS färdiga regel `AmazonS3ReadOnlyAccess`. Den ger läsrätt till alla buckets i kontot, även backup-bucketen. Mina egna regler pekar ut exakt vilken bucket det gäller.
 
+Grupperna har customer managed policies. De är fristående, så samma policy kan kopplas till fler grupper om Novatrix växer. Rollernas policies är inline. Varje regel hör till exakt en roll och pekar på exakt en bucket eller roll, så de ska aldrig återanvändas. Det är det undantag där inline passar.
+
 ## Delmoment 4: Behörigheter mellan tjänster
 
 ### Roll 1
@@ -309,7 +311,19 @@ Så här ser svaret ut för drift:
 
 För utveckling testade jag också data-bucketen. Läsa `hej.txt` var tillåtet. Skriva och radera var nekat.
 
-I konsolrundan loggade jag också in som testanvändarna. drift-test kunde starta om servern men fick fel när den försökte radera den. dev-test fick fel redan när den försökte starta om.
+I konsolrundan loggade jag också in som testanvändarna i ett privat fönster. drift-test kunde starta om servern:
+
+![drift-test får starta om servern](bilder/11-drift-omstart-ok.png)
+
+Men när drift-test försökte radera servern blev det nekat:
+
+![drift-test får inte radera servern](bilder/12-drift-radera-nekad.png)
+
+dev-test fick inte ens starta om den:
+
+![dev-test får inte starta om servern](bilder/13-dev-omstart-nekad.png)
+
+Kontonumret är suddat på bilderna.
 
 ### Servern
 
