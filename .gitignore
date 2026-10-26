@@ -10,3 +10,5 @@ id_ed25519*
 novatrix_key*
 *.pub
 *.pdf
+.aws/
+credentials

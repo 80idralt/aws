@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-10-22
+**Datum:** 2026-10-26
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v43
 
@@ -26,6 +26,7 @@ Jag gjorde allt först i konsolen för att förstå hur delarna hänger ihop. Se
 6. [Så återskapar du miljön](#så-återskapar-du-miljön)
 7. [Inför kommande veckor](#inför-kommande-veckor)
 8. [Bilaga: policyerna](#bilaga-policyerna)
+9. [Bilaga: skripten](#bilaga-skripten)
 
 ## Delmoment 1: Repo
 
@@ -103,7 +104,7 @@ Grupperna har customer managed policies. De är fristående, så samma policy ka
 
 Webbservern ska läsa en fil i S3. Det enkla vore att lägga en nyckel på servern. Men en nyckel kan läcka och fungerar sedan tills någon byter den.
 
-I stället har servern en roll. En roll är som ett passerkort som servern lånar. Kortet gäller en timme i taget och byts ut automatiskt. Det finns ingen nyckel på servern som kan stjälas.
+I stället har servern en roll. En roll är som ett passerkort som servern lånar. Kortet gäller bara en begränsad tid och byts ut automatiskt. Det finns ingen nyckel på servern som kan stjälas.
 
 Roll 1 heter `novatrix-ec2-s3-read`. Den får bara läsa i data-bucketen.
 
@@ -114,6 +115,8 @@ En roll har två delar. Trust policyn säger vem som får låna rollen. För rol
 Permissions säger vad rollen får göra. Roll 1 har två egna regler, en för att läsa data-bucketen och en för att låna roll 2.
 
 ![Roll 1 har två inbakade regler](bilder/04-roll1-permissions.png)
+
+En server kan inte bära en roll direkt. Rollen läggs i en instance profile med samma namn. Det är den som kopplas till servern. I konsolen skapades den automatiskt när jag skapade rollen. I skriptet gör jag det själv med `aws iam create-instance-profile` och `aws ec2 associate-iam-instance-profile`.
 
 ### VG: kedjan med roll 2
 
@@ -171,6 +174,8 @@ aws login
 Skriptet gör samma sak som jag klickade fram i konsolen, i samma ordning. Det skapar bucketarna, grupperna med sina användare, roll 1, roll 2 och till sist servern. Servern byggs med skriptet från v42.
 
 `.\destroy.ps1` river allt i omvänd ordning. Servern måste bort först eftersom den har roll 1.
+
+Båda skripten står i sin helhet i [Bilaga: skripten](#bilaga-skripten).
 
 ### Så växer modellen
 
@@ -339,9 +344,13 @@ Bucketarna ligger i Stockholm. Data-bucketen innehåller testfilen som skriptet 
 
 ![hej.txt i data-bucketen](bilder/10-data-bucket.png)
 
-Med roll 1 kunde servern läsa testfilen men inte skriva:
+Med roll 1 visste servern vem den var. Den kunde lista och läsa testfilen men inte skriva:
 
 ```
+[ec2-user@ip-172-31-43-10 ~]$ aws sts get-caller-identity --query Arn --output text
+arn:aws:sts::KONTONUMMER:assumed-role/novatrix-ec2-s3-read/i-0bd1ff8244fbf524b
+[ec2-user@ip-172-31-43-10 ~]$ aws s3 ls s3://novatrix-data-80idralt-01
+2026-10-21 19:33:09         32 hej.txt
 [ec2-user@ip-172-31-43-10 ~]$ aws s3 cp s3://novatrix-data-80idralt-01/hej.txt -
 Hej från Novatrix data-bucket
 [ec2-user@ip-172-31-43-10 ~]$ aws s3 cp test.txt s3://novatrix-data-80idralt-01/
@@ -565,4 +574,147 @@ Inbakad i roll 2 som novatrix-s3-backup. Lägga filer i backup-mappen.
         }
     ]
 }
+```
+
+## Bilaga: skripten
+
+Skripten som de ligger i repot. Servern byggs och rivs med skripten från [v42](../v42/).
+
+### deploy.ps1
+
+```powershell
+# Novatrix v43 VG: bygger hela IAM-modellen från kod.
+# Kräver: inloggad med "aws login", key pair novatrix-key finns i kontot.
+
+$ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
+$env:AWS_CLI_FILE_ENCODING = "UTF-8"
+
+# Inställningar
+$Region       = "eu-north-1"
+$Mapp         = Join-Path $PSScriptRoot "policies"
+$DataBucket   = "novatrix-data-80idralt-01"
+$BackupBucket = "novatrix-backup-80idralt-01"
+
+# Kontonumret hämtas här, så att det aldrig behöver stå i repot
+$Konto = aws sts get-caller-identity --query Account --output text
+
+# 1. Bucketarna. Ny bucket blockerar allmän åtkomst från start.
+aws s3api create-bucket --bucket $DataBucket --region $Region `
+    --create-bucket-configuration LocationConstraint=$Region | Out-Null
+aws s3api create-bucket --bucket $BackupBucket --region $Region `
+    --create-bucket-configuration LocationConstraint=$Region | Out-Null
+aws s3 cp (Join-Path $PSScriptRoot "hej.txt") "s3://$DataBucket/hej.txt" | Out-Null
+Write-Host "Bucketar skapade, hej.txt uppladdad"
+
+# 2. Människorna: policy först, sedan grupp, sedan användare
+$DriftArn = aws iam create-policy --policy-name novatrix-drift `
+    --policy-document "file://$Mapp/drift.json" --query Policy.Arn --output text
+aws iam create-group --group-name novatrix-drift | Out-Null
+aws iam attach-group-policy --group-name novatrix-drift --policy-arn $DriftArn
+aws iam create-user --user-name drift-test | Out-Null
+aws iam add-user-to-group --user-name drift-test --group-name novatrix-drift
+
+$UtvArn = aws iam create-policy --policy-name novatrix-utveckling `
+    --policy-document "file://$Mapp/utveckling.json" --query Policy.Arn --output text
+aws iam create-group --group-name novatrix-utveckling | Out-Null
+aws iam attach-group-policy --group-name novatrix-utveckling --policy-arn $UtvArn
+aws iam create-user --user-name dev-test | Out-Null
+aws iam add-user-to-group --user-name dev-test --group-name novatrix-utveckling
+Write-Host "Grupper och testanvändare skapade"
+
+# 3. Roll 1: webbservern läser data-bucketen
+aws iam create-role --role-name novatrix-ec2-s3-read `
+    --assume-role-policy-document "file://$Mapp/trust-ec2.json" | Out-Null
+aws iam put-role-policy --role-name novatrix-ec2-s3-read `
+    --policy-name novatrix-s3-read --policy-document "file://$Mapp/s3-read.json"
+
+# Omslaget som låter en server bära rollen (konsolen gjorde det automatiskt)
+aws iam create-instance-profile --instance-profile-name novatrix-ec2-s3-read | Out-Null
+aws iam add-role-to-instance-profile --instance-profile-name novatrix-ec2-s3-read `
+    --role-name novatrix-ec2-s3-read
+Write-Host "Roll 1 novatrix-ec2-s3-read skapad"
+
+# 4. Roll 2 och kedjan. KONTONUMMER i filerna byts mot det riktiga numret här.
+$TrustBackup  = (Get-Content "$Mapp/trust-backup.json" -Raw).Replace("KONTONUMMER", $Konto)
+$AssumeBackup = (Get-Content "$Mapp/assume-backup.json" -Raw).Replace("KONTONUMMER", $Konto)
+
+# IAM behöver några sekunder innan en ny roll kan pekas ut i en annan rolls trust
+Start-Sleep -Seconds 10
+
+aws iam create-role --role-name novatrix-backup-write `
+    --assume-role-policy-document $TrustBackup | Out-Null
+aws iam put-role-policy --role-name novatrix-backup-write `
+    --policy-name novatrix-s3-backup --policy-document "file://$Mapp/s3-backup.json"
+
+# Sista länken: roll 1 får låna roll 2
+aws iam put-role-policy --role-name novatrix-ec2-s3-read `
+    --policy-name novatrix-assume-backup --policy-document $AssumeBackup
+Write-Host "Roll 2 novatrix-backup-write och kedjan skapade"
+
+
+# 5. Servern byggs med v42-skriptet, sedan får den roll 1
+& (Join-Path $PSScriptRoot "..\v42\deploy.ps1")
+
+$InstansId = aws ec2 describe-instances `
+    --filters "Name=tag:Name,Values=novatrix-web" "Name=instance-state-name,Values=running" `
+    --query "Reservations[0].Instances[0].InstanceId" --output text
+aws ec2 associate-iam-instance-profile --instance-id $InstansId `
+    --iam-instance-profile Name=novatrix-ec2-s3-read | Out-Null
+Write-Host "Roll 1 kopplad till servern $InstansId"
+```
+
+### destroy.ps1
+
+```powershell
+# Novatrix v43 VG: river allt som deploy.ps1 skapade, i omvänd ordning.
+# Kräver: inloggad med "aws login".
+
+$ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
+
+$DataBucket   = "novatrix-data-80idralt-01"
+$BackupBucket = "novatrix-backup-80idralt-01"
+$Konto = aws sts get-caller-identity --query Account --output text
+
+# 1. Servern först, den bär roll 1
+& (Join-Path $PSScriptRoot "..\v42\destroy.ps1")
+
+# 2. Rollerna: ta ur rollen ur omslaget, ta bort omslaget, sedan lapparna, sist rollen
+aws iam remove-role-from-instance-profile --instance-profile-name novatrix-ec2-s3-read `
+    --role-name novatrix-ec2-s3-read
+aws iam delete-instance-profile --instance-profile-name novatrix-ec2-s3-read
+
+aws iam delete-role-policy --role-name novatrix-ec2-s3-read --policy-name novatrix-s3-read
+aws iam delete-role-policy --role-name novatrix-ec2-s3-read --policy-name novatrix-assume-backup
+aws iam delete-role --role-name novatrix-ec2-s3-read
+
+aws iam delete-role-policy --role-name novatrix-backup-write --policy-name novatrix-s3-backup
+aws iam delete-role --role-name novatrix-backup-write
+Write-Host "Rollerna borttagna"
+
+
+# 3. Människorna: ur gruppen, bort med användaren, av med lappen, bort med gruppen, sist lappen
+aws iam remove-user-from-group --user-name drift-test --group-name novatrix-drift
+aws iam delete-user --user-name drift-test
+aws iam detach-group-policy --group-name novatrix-drift `
+    --policy-arn "arn:aws:iam::${Konto}:policy/novatrix-drift"
+aws iam delete-group --group-name novatrix-drift
+aws iam delete-policy --policy-arn "arn:aws:iam::${Konto}:policy/novatrix-drift"
+
+aws iam remove-user-from-group --user-name dev-test --group-name novatrix-utveckling
+aws iam delete-user --user-name dev-test
+aws iam detach-group-policy --group-name novatrix-utveckling `
+    --policy-arn "arn:aws:iam::${Konto}:policy/novatrix-utveckling"
+aws iam delete-group --group-name novatrix-utveckling
+aws iam delete-policy --policy-arn "arn:aws:iam::${Konto}:policy/novatrix-utveckling"
+Write-Host "Grupper, testanvändare och deras policies borttagna"
+
+# 4. Bucketarna. --force tömmer dem först.
+aws s3 rb "s3://$DataBucket" --force | Out-Null
+aws s3 rb "s3://$BackupBucket" --force | Out-Null
+Write-Host "Bucketarna borttagna"
+
+Write-Host ""
+Write-Host "Klart. Allt från v43 är rivet."
 ```
