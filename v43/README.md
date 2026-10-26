@@ -24,9 +24,8 @@ Jag gjorde allt först i konsolen för att förstå hur delarna hänger ihop. Se
 4. [Delmoment 4: Behörigheter mellan tjänster](#delmoment-4-behörigheter-mellan-tjänster)
 5. [Delmoment 5: Verifiering](#delmoment-5-verifiering)
 6. [Så återskapar du miljön](#så-återskapar-du-miljön)
-7. [Inför kommande veckor](#inför-kommande-veckor)
-8. [Bilaga: policyerna](#bilaga-policyerna)
-9. [Bilaga: skripten](#bilaga-skripten)
+7. [Bilaga: policyerna](#bilaga-policyerna)
+8. [Bilaga: skripten](#bilaga-skripten)
 
 ## Delmoment 1: Repo
 
@@ -406,12 +405,6 @@ Det här måste bytas om någon annan ska köra skripten:
 Kontonumret behöver inte bytas. Skriptet hämtar det själv och byter ut `KONTONUMMER` i filerna.
 
 Skriptet förutsätter ett tomt konto. Körs det en gång till stannar det på första saken som redan finns, eftersom AWS inte tillåter två roller eller buckets med samma namn. Då kör man `.\destroy.ps1` först.
-
-## Inför kommande veckor
-
-Backup-bucketen ska användas för databasbackuper i v45. Data-bucketen används igen i v46.
-
-I v46 skapas rollen `novatrix-ec2-s3-read` med CloudFormation. Innan dess måste jag ta bort min roll med samma namn, annars krockar de.
 
 ## Bilaga: policyerna
 
