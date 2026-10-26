@@ -92,7 +92,7 @@ Drift sköter servrarna och behöver kunna starta om dem. Men ingen ska kunna ra
 
 Utveckling behöver mest kunna titta och testa. Därför får de bara läsa.
 
-Det finns en stjärna i båda reglerna, för att få se servrar. Läraren säger att man ska undvika stjärnor. Här går det inte på något annat sätt, eftersom AWS inte kan begränsa "se servrar" till en viss server. Det är bara läsning.
+Det finns en stjärna i båda reglerna, för att få se servrar. Stjärnor bör undvikas, men här går det inte på något annat sätt eftersom AWS inte kan begränsa "se servrar" till en viss server. Det är bara läsning.
 
 Jag valde bort AWS färdiga regel `AmazonS3ReadOnlyAccess`. Den ger läsrätt till alla buckets i kontot, även backup-bucketen. Mina egna regler pekar ut exakt vilken bucket det gäller.
 
@@ -141,8 +141,6 @@ Varför två roller i stället för en:
 - Varje gång servern lånar roll 2 syns det i loggen CloudTrail. Då går det att se när backuper har gjorts.
 
 Kedjan skyddar inte mot allt. Tar sig någon in på servern kan den personen också lägga filer i backup-mappen. Men personen kan inte läsa backuperna eller radera dem.
-
-Namnen på roll 1 och reglerna är samma som i lärarens CloudFormation-mall för v46.
 
 ### Rollerna jag har skapat och varför
 
@@ -357,7 +355,7 @@ Hej från Novatrix data-bucket
 upload failed: ... (AccessDenied) when calling the PutObject operation
 ```
 
-Lärarens handledning testar med `aws s3 ls` utan bucketnamn, alltså en lista över alla buckets i kontot. Hos mig nekas det med flit. Roll 1 får bara se sin egen bucket, så servern får inte veta vilka andra buckets som finns.
+Ett vanligt test är `aws s3 ls` utan bucketnamn, alltså en lista över alla buckets i kontot. Hos mig nekas det med flit. Roll 1 får bara se sin egen bucket, så servern får inte veta vilka andra buckets som finns.
 
 ### Kedjan
 
@@ -413,7 +411,7 @@ Skriptet förutsätter ett tomt konto. Körs det en gång till stannar det på f
 
 Backup-bucketen ska användas för databasbackuper i v45. Data-bucketen används igen i v46.
 
-I v46 skapar lärarens CloudFormation-mall rollen `novatrix-ec2-s3-read`. Innan dess måste jag ta bort min roll med samma namn, annars krockar de.
+I v46 skapas rollen `novatrix-ec2-s3-read` med CloudFormation. Innan dess måste jag ta bort min roll med samma namn, annars krockar de.
 
 ## Bilaga: policyerna
 
