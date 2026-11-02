@@ -440,14 +440,16 @@ Write-Host "NACL skapad och kopplad till novatrix-public"
 $WebId = aws ec2 run-instances --image-id $Ami --instance-type $Typ --key-name $Nyckel `
     --subnet-id $PublicId --security-group-ids $WebSg --associate-public-ip-address `
     --iam-instance-profile Name=$Roll --user-data "file://$UserData" `
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=novatrix-web},{Key=Project,Value=novatrix}]" `
     --query "Instances[0].InstanceId" --output text
+aws ec2 create-tags --resources $WebId `
+    --tags Key=Name,Value=novatrix-web Key=Project,Value=novatrix
 
 # Bastion: ingen roll och ingen user data, den ska bara vara en dörr
 $BastionId = aws ec2 run-instances --image-id $Ami --instance-type $Typ --key-name $Nyckel `
     --subnet-id $PublicId --security-group-ids $BastionSg --associate-public-ip-address `
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=novatrix-bastion},{Key=Project,Value=novatrix}]" `
     --query "Instances[0].InstanceId" --output text
+aws ec2 create-tags --resources $BastionId `
+    --tags Key=Name,Value=novatrix-bastion Key=Project,Value=novatrix
 Write-Host "Servrar startade, väntar på att de ska köra..."
 
 aws ec2 wait instance-running --instance-ids $WebId $BastionId
@@ -480,7 +482,9 @@ if ($VpcId -eq "None") {
 }
 
 # 1. Servrarna först, de sitter i subnätet. Hoppa över den som redan är borta.
-$WebId = aws ec2 describe-instances --filters "Name=tag:Name,Values=novatrix-web" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" `
+$Lever = "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down"
+$WebId = aws ec2 describe-instances `
+    --filters "Name=tag:Name,Values=novatrix-web" $Lever `
     --query "Reservations[0].Instances[0].InstanceId" --output text
 if ($WebId -ne "None") {
     aws ec2 terminate-instances --instance-ids $WebId | Out-Null
@@ -488,7 +492,8 @@ if ($WebId -ne "None") {
     aws ec2 wait instance-terminated --instance-ids $WebId
 }
 
-$BastionId = aws ec2 describe-instances --filters "Name=tag:Name,Values=novatrix-bastion" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" `
+$BastionId = aws ec2 describe-instances `
+    --filters "Name=tag:Name,Values=novatrix-bastion" $Lever `
     --query "Reservations[0].Instances[0].InstanceId" --output text
 if ($BastionId -ne "None") {
     aws ec2 terminate-instances --instance-ids $BastionId | Out-Null

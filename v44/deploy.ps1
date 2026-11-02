@@ -88,14 +88,16 @@ Write-Host "NACL skapad och kopplad till novatrix-public"
 $WebId = aws ec2 run-instances --image-id $Ami --instance-type $Typ --key-name $Nyckel `
     --subnet-id $PublicId --security-group-ids $WebSg --associate-public-ip-address `
     --iam-instance-profile Name=$Roll --user-data "file://$UserData" `
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=novatrix-web},{Key=Project,Value=novatrix}]" `
     --query "Instances[0].InstanceId" --output text
+aws ec2 create-tags --resources $WebId `
+    --tags Key=Name,Value=novatrix-web Key=Project,Value=novatrix
 
 # Bastion: ingen roll och ingen user data, den ska bara vara en dörr
 $BastionId = aws ec2 run-instances --image-id $Ami --instance-type $Typ --key-name $Nyckel `
     --subnet-id $PublicId --security-group-ids $BastionSg --associate-public-ip-address `
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=novatrix-bastion},{Key=Project,Value=novatrix}]" `
     --query "Instances[0].InstanceId" --output text
+aws ec2 create-tags --resources $BastionId `
+    --tags Key=Name,Value=novatrix-bastion Key=Project,Value=novatrix
 Write-Host "Servrar startade, väntar på att de ska köra..."
 
 aws ec2 wait instance-running --instance-ids $WebId $BastionId

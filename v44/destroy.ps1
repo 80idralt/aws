@@ -12,7 +12,9 @@ if ($VpcId -eq "None") {
 }
 
 # 1. Servrarna först, de sitter i subnätet. Hoppa över den som redan är borta.
-$WebId = aws ec2 describe-instances --filters "Name=tag:Name,Values=novatrix-web" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" `
+$Lever = "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down"
+$WebId = aws ec2 describe-instances `
+    --filters "Name=tag:Name,Values=novatrix-web" $Lever `
     --query "Reservations[0].Instances[0].InstanceId" --output text
 if ($WebId -ne "None") {
     aws ec2 terminate-instances --instance-ids $WebId | Out-Null
@@ -20,7 +22,8 @@ if ($WebId -ne "None") {
     aws ec2 wait instance-terminated --instance-ids $WebId
 }
 
-$BastionId = aws ec2 describe-instances --filters "Name=tag:Name,Values=novatrix-bastion" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" `
+$BastionId = aws ec2 describe-instances `
+    --filters "Name=tag:Name,Values=novatrix-bastion" $Lever `
     --query "Reservations[0].Instances[0].InstanceId" --output text
 if ($BastionId -ne "None") {
     aws ec2 terminate-instances --instance-ids $BastionId | Out-Null
