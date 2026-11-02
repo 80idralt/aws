@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-10-29
+**Datum:** 2026-11-02
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v44
 
@@ -16,7 +16,7 @@ Den här veckan har jag byggt ett eget nätverk. Det har ett publikt subnät fö
 
 För VG har jag lagt till en bastion. Det är en liten extra server som är den enda vägen in med SSH. Webbservern tar inte längre emot SSH från internet alls, inte ens från min egen adress.
 
-Jag byggde allt först i konsolen för att förstå hur delarna hänger ihop. Sedan rev jag det och skrev två skript som bygger och river samma sak. Skripten har byggt allt två gånger med samma resultat.
+Jag byggde allt först i konsolen för att förstå hur delarna hänger ihop. Sedan rev jag det och skrev två skript som bygger och river samma sak. Skripten har byggt allt tre gånger med samma resultat.
 
 ## Innehåll
 
@@ -305,7 +305,9 @@ TcpTestSucceeded       : False
 | Port 8080 | Stoppas | Failed |
 | Ping | Stoppas | Timeout |
 
-### Två varv
+Port 443 är öppen i NACL:en och security groupen, men webbservern har inget certifikat än. Därför visas sidan bara på port 80. När HTTPS kommer behöver inget öppnas i nätverket.
+
+### Tre varv
 
 Jag körde `deploy.ps1`, testade, körde `destroy.ps1` och sedan allt en gång till. Andra varvet fick nya id och adresser men samma resultat. Via bastionen kom jag in på webbservern även där.
 
