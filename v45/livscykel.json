@@ -1,0 +1,10 @@
+{
+  "Rules": [
+    {
+      "ID": "backup-14-dagar",
+      "Filter": { "Prefix": "backup/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 14 }
+    }
+  ]
+}

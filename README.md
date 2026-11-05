@@ -10,7 +10,7 @@ Varje veckomapp har en egen README som dokumenterar veckans arbete, med syfte, s
 - [x] [V42 - Compute och kom igång](v42/); Novatrix-sidan på en EC2-server, byggd både i konsolen och från kod
 - [x] [V43 - IAM och identitet](v43/); grupper för drift och utveckling samt en kedja med två roller där servern läser S3 utan nyckel, byggt både i konsolen och från kod
 - [x] [V44 - Nätverk och säkerhet](v44/); eget VPC med ett publikt och två privata subnät, NACL och security groups i flera lager samt en bastion som enda väg in med SSH, byggt både i konsolen och från kod
-- [ ] [V45 - Storage och databas](v45/)
+- [x] [V45 - Storage och databas](v45/); WordPress med databasen i RDS och filerna på en delad disk i EFS samt backup till S3 som tas bort efter 14 dagar, byggt både i konsolen och från kod
 - [ ] [V46 - IaC med CloudFormation](v46/)
 - [ ] [V47 - Skalbarhet och tillgänglighet](v47/)
 - [ ] [V48 - Monitorering och cloud native](v48/)

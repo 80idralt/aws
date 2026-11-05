@@ -12,3 +12,6 @@ novatrix_key*
 *.pdf
 .aws/
 credentials
+
+# WordPress-inställningar med databasens lösenord
+wp-config.php
