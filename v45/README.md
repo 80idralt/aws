@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-11-05
+**Datum:** 2026-11-06
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v45
 
@@ -269,6 +269,12 @@ Med Multi-AZ har databasen en reservkopia i en annan zon. Om zonen eller servern
 Backupen ska inte ligga på webbservern. Om servern går sönder eller blir hackad försvinner backupen samtidigt. Den ska inte heller ligga på EFS. Det är ju EFS och databasen jag vill skydda. Dessutom kostar EFS mer per GB än S3.
 
 Jag använder S3 Standard. Standard-IA är billigare per GB, men man betalar alltid för minst 30 dagar. Mina backuper lever bara i 14 dagar. Då blir IA dyrare. Glacier har ännu längre minsta tid.
+
+### EFS-läget
+
+Jag valde Bursting och lagringsklassen Standard utan livscykelregel. Med Bursting får disken fart efter hur mycket som ligger på den. Den kan också spurta en stund när det behövs. För en liten sajt räcker det. Jag betalar bara för det som lagras.
+
+Elastic tar betalt för varje läsning och skrivning. Provisioned kostar för fart som jag kanske aldrig använder. Jag stängde också av flytten till IA-klassen. Bilderna läses varje gång någon besöker sajten. I IA kostar varje läsning extra. Om sajten växer och blir långsam byter jag till Elastic.
 
 ### Kostnad per månad
 
