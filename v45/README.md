@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-11-06
+**Datum:** 2026-11-08
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v45
 
@@ -155,6 +155,8 @@ När skriptet är klart skickar webbsidan vidare till WordPress installationsgui
 WordPress skriver då in uppgifterna i `wp-config.php` på servern. Sedan skapade jag sajten Novatrix AB med ett eget användarnamn och skrev ett inlägg med en bild.
 
 ![Inlägget med bilden på sajten](images/05-wordpress-inlagg.png)
+
+Bilden är från konsolrundan. När skriptet byggde stacken skrev jag ett nytt inlägg, Välkommen till Novatrix AB, som syns i delmoment 7.
 
 Texten i inlägget ligger i RDS. Bilden ligger på EFS.
 
