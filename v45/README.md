@@ -105,7 +105,7 @@ Bucketen har en livscykelregel som heter `backup-14-dagar`. Den tar bort allt un
 
 `backup.sh` gör en kopia av databasen med `mysqldump` och lägger den i S3. Filnamnet får datum och tid. Kopian tas alltid bort från servern efteråt. Lösenordet frågas efter när skriptet körs.
 
-```
+```bash
 [ec2-user@ip-10-0-1-210 ~]$ bash backup.sh novatrix-db.xxxxxxxxxxxx.eu-north-1.rds.amazonaws.com
 Profilen backup skapad
 Enter password:
@@ -126,7 +126,7 @@ Webbserverns roll från v43 heter `novatrix-ec2-s3-read`. Den får bara läsa i 
 
 Det är profilen `backup` i `backup.sh` som sköter lånet. Det betyder att servern inte ens kan se vilka backuper som finns. Det testade jag:
 
-```
+```bash
 [ec2-user@ip-10-0-1-185 tmp]$ aws s3 ls s3://novatrix-backup-80idralt-01/backup/
 aws: [ERROR]: An error occurred (AccessDenied) when calling the ListObjectsV2 operation: User: arn:aws:sts::XXXXXXXXXXXX:assumed-role/novatrix-ec2-s3-read/i-09abe6ea06bba9cfa is not authorized to perform: s3:ListBucket on resource: "arn:aws:s3:::novatrix-backup-80idralt-01" because no identity-based policy allows the s3:ListBucket action
 ```
@@ -198,7 +198,7 @@ Raden från RDS betyder i tur och ordning: igång, version 11.4.13, minsta klass
 
 På webbservern ser jag att EFS är inkopplad på `wp-content`. 8.0E betyder att disken inte har någon fast storlek. Den växer när det läggs in filer.
 
-```
+```bash
 [ec2-user@ip-10-0-1-210 ~]$ df -h /var/www/html/wp-content
 Filesystem      Size  Used Avail Use% Mounted on
 127.0.0.1:/     8.0E     0  8.0E   0% /var/www/html/wp-content
@@ -206,7 +206,7 @@ Filesystem      Size  Used Avail Use% Mounted on
 
 Bilden från inlägget ligger på EFS. WordPress gör själv mindre kopior av den.
 
-```
+```bash
 [ec2-user@ip-10-0-1-210 ~]$ ls -R /var/www/html/wp-content/uploads
 /var/www/html/wp-content/uploads:
 2026
@@ -221,7 +221,7 @@ Skarmbild-2026-11-04-101359-300x280.png  Skarmbild-2026-11-04-101359.png
 
 Inlägget ligger i databasen:
 
-```
+```bash
 [ec2-user@ip-10-0-1-210 ~]$ mysql -h novatrix-db.xxxxxxxxxxxx.eu-north-1.rds.amazonaws.com -u admin -p -e "SELECT post_title, post_status FROM wordpress.wp_posts WHERE post_type='post';"
 Enter password:
 +-----------------------------+-------------+
@@ -317,7 +317,7 @@ RDS-backupen kan spola tillbaka databasen till en tidpunkt. Under Actions och Re
 
 Dumpen läste jag in i en separat testdatabas. Den riktiga databasen rördes inte. Inlägget fanns med. Sedan städade jag bort testet.
 
-```
+```bash
 [ec2-user@ip-10-0-1-210 ~]$ DB=novatrix-db.xxxxxxxxxxxx.eu-north-1.rds.amazonaws.com
 [ec2-user@ip-10-0-1-210 ~]$ read -s -p "RDS-lösenord: " MYSQL_PWD; export MYSQL_PWD; echo
 [ec2-user@ip-10-0-1-210 ~]$ mysqldump --single-transaction -h $DB -u admin wordpress > /tmp/test.sql
