@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-11-08
+**Datum:** 2026-11-09
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v45
 
@@ -371,7 +371,7 @@ Efter `destroy.ps1` fanns ingen databas, ingen EFS, inga security groups och ing
 Det här behövs i kontot först:
 
 - Key pair `novatrix-key`.
-- Rollen `novatrix-ec2-s3-read` och bucketen `novatrix-backup-80idralt-01` från v43.
+- Rollerna och bucketarna från v43. Kör `v43/deploy.ps1` först om de inte finns.
 
 Bygger du i ett annat konto byter du bucketnamnet överst i `deploy.ps1` och i `backup.sh`. Regionen är eu-north-1 och zonerna står i skriptet. Alla id:n hämtas av skriptet, så dem behöver du inte byta.
 
