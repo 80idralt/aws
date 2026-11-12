@@ -61,6 +61,9 @@ Resources:
       MultiAZ: false
       BackupRetentionPeriod: !Ref BackupDays
       DeleteAutomatedBackups: true
+      Tags:
+       - Key: Course
+         Value: MOV25
 
   # Step 10: EFS (AWS::EFS::FileSystem) with Encrypted: true and FileSystemTags Name ${Prefix}-efs
   FileSystem:
