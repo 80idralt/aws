@@ -54,6 +54,14 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - {Effect: Allow, Action: s3:PutObject, Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"}
+        - PolicyName: !Sub ${Prefix}-db-secret-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
+
   WebInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -95,9 +103,29 @@ Resources:
             tar -xzf latest.tar.gz
             cp -rn /tmp/wordpress/. /var/www/html/
 
+            # wp-config.php from the secret, so nobody types the database password
+            set +x
+            SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
+            DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+            cd /var/www/html
+            cp wp-config-sample.php wp-config.php
+            sed -i "s/database_name_here/wordpress/" wp-config.php
+            sed -i "s/username_here/admin/" wp-config.php
+            sed -i "s/password_here/$DBPASS/" wp-config.php
+            sed -i "s/localhost/${DbHost}/" wp-config.php
+            set -x
+
+            # Unique security keys for the login cookies
+            curl -sS https://api.wordpress.org/secret-key/1.1/salt/ > /tmp/salt.txt
+            sed -i "/put your unique phrase here/d" wp-config.php
+            sed -i "/DB_COLLATE/r /tmp/salt.txt" wp-config.php
+            rm -f /tmp/salt.txt
+
             chown -R apache:apache /var/www/html
             systemctl enable --now php-fpm httpd
           - EfsId: !ImportValue {"Fn::Sub": "${Prefix}-efs-id"}
+            DbHost: !ImportValue {"Fn::Sub": "${Prefix}-db-endpoint"}
+            SecretArn: !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
 
 Outputs:
   PublicIp:
