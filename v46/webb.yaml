@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Novatrix web layer (v42, v43 and v45 as code): the role and instance profile for the
+  web server, and the web server novatrix-web in the public subnet. User data installs
+  WordPress and mounts EFS on wp-content. The WordPress installer is run in the browser.
+  Needs the network and data stacks. Stack name: novatrix-webb.
+  Skeleton: the role and the user data are done, the instance is yours, see Del 14B step 11.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: novatrix
+    AllowedPattern: "[a-z][a-z0-9-]*"
+    Description: Same prefix as the network and data stacks
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing key pair for SSH
+  DataBucket:
+    Type: String
+    Description: The bucket from v43 that the server may read, e.g. novatrix-data-<name>-01
+  BackupBucket:
+    Type: String
+    Description: The backup bucket from v45, e.g. novatrix-backup-<name>-01
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023, looked up when the stack is deployed
+
+Resources:
+  # Same role as in v43 and v45, read from the v43 bucket and write backups
+  WebRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Prefix}-ec2-s3-read
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${Prefix}-s3-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - {Effect: Allow, Action: s3:ListBucket, Resource: !Sub "arn:aws:s3:::${DataBucket}"}
+              - {Effect: Allow, Action: s3:GetObject, Resource: !Sub "arn:aws:s3:::${DataBucket}/*"}
+        - PolicyName: !Sub ${Prefix}-s3-backup
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - {Effect: Allow, Action: s3:PutObject, Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"}
+  WebInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${Prefix}-ec2-s3-read
+      Roles: [!Ref WebRole]
+
+  # TODO WebServer (AWS::EC2::Instance): ImageId !Ref LatestAmiId, InstanceType, KeyName,
+  #   SubnetId (public subnet from the network stack), SecurityGroupIds (web group),
+  #   IamInstanceProfile !Ref WebInstanceProfile, tag Name ${Prefix}-web.
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            # Runs once at first boot. Log: /var/log/cloud-init-output.log
+            set -euxo pipefail
+            dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml mariadb105 amazon-efs-utils
+
+            # Mount EFS on wp-content, also after a reboot
+            mkdir -p /var/www/html/wp-content
+            echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" >> /etc/fstab
+            for i in 1 2 3 4 5 6 7 8 9 10; do mount -a && mountpoint -q /var/www/html/wp-content && break; sleep 15; done
+            mountpoint -q /var/www/html/wp-content
+
+            # WordPress. -n keeps files that already are on EFS (a second server in v47)
+            cd /tmp
+            curl -sSLo latest.tar.gz https://wordpress.org/latest.tar.gz
+            tar -xzf latest.tar.gz
+            cp -rn /tmp/wordpress/. /var/www/html/
+
+            chown -R apache:apache /var/www/html
+            systemctl enable --now php-fpm httpd
+          - EfsId: !ImportValue {"Fn::Sub": "${Prefix}-efs-id"}
+
+Outputs:
+  PublicIp:
+    Value: !GetAtt WebServer.PublicIp
+  WebUrl:
+    Description: Open this and run the WordPress installer (Database Host is DbEndpoint from the data stack)
+    Value: !Sub "http://${WebServer.PublicIp}"
+  InstanceId:
+    Value: !Ref WebServer
+    Export: {Name: !Sub "${Prefix}-web-instance-id"}

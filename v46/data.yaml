@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Novatrix data layer (v45 as code). Needs the network stack. Stack name: novatrix-data.
+  Skeleton: the parts marked TODO are yours to write, see Del 14B steps 9 and 10.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: novatrix
+    AllowedPattern: "[a-z][a-z0-9-]*"
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues: [db.t3.micro, db.t3.small]
+
+Resources:
+  # Step 9: subnet group and the generated password are done
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${Prefix}-db-subnets
+      DBSubnetGroupDescription: Private subnets for the Novatrix database
+      SubnetIds:
+        - !ImportValue {"Fn::Sub": "${Prefix}-private-a-id"}
+        - !ImportValue {"Fn::Sub": "${Prefix}-private-b-id"}
+
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub Admin password for ${Prefix}-db
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludePunctuation: true
+
+  # Step 9: the database (AWS::RDS::DBInstance). Same settings as in v45.
+  # TODO Database with DeletionPolicy: Delete and these properties:
+  #   DBInstanceIdentifier ${Prefix}-db, Engine mariadb, EngineVersion "11.4" (11.8 requires TLS),
+  #   DBInstanceClass, AllocatedStorage "20",
+  #   MasterUsername admin,
+  #   MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}",
+  #   DBName wordpress, DBSubnetGroupName, VPCSecurityGroups (the db group from the network stack),
+  #   PubliclyAccessible false, MultiAZ false, BackupRetentionPeriod 1 (Free plan allows at most 1), DeleteAutomatedBackups true
+
+  # Step 10: EFS (AWS::EFS::FileSystem) with Encrypted: true and FileSystemTags Name ${Prefix}-efs
+  # TODO FileSystem
+  # TODO MountTargetA and MountTargetB (AWS::EFS::MountTarget), one per private subnet, efs group
+
+Outputs:
+  DbSecretArn:
+    Value: !Ref DbSecret
+    Export: {Name: !Sub "${Prefix}-db-secret-arn"}
+  # TODO DbEndpoint (!GetAtt Database.Endpoint.Address), export ${Prefix}-db-endpoint
+  # TODO FileSystemId (!Ref FileSystem), export ${Prefix}-efs-id
