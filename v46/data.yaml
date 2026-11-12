@@ -1,7 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Novatrix data layer (v45 as code). Needs the network stack. Stack name: novatrix-data.
-  Skeleton: the parts marked TODO are yours to write, see Del 14B steps 9 and 10.
 
 Parameters:
   Prefix:
@@ -12,6 +11,13 @@ Parameters:
     Type: String
     Default: db.t3.micro
     AllowedValues: [db.t3.micro, db.t3.small]
+
+  BackupDays:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 35
+    Description: Days of automatic backup. Free plan allows at most 1, use 14 on a paid account
 
 Resources:
   # Step 9: subnet group and the generated password are done
@@ -35,21 +41,60 @@ Resources:
         ExcludePunctuation: true
 
   # Step 9: the database (AWS::RDS::DBInstance). Same settings as in v45.
-  # TODO Database with DeletionPolicy: Delete and these properties:
-  #   DBInstanceIdentifier ${Prefix}-db, Engine mariadb, EngineVersion "11.4" (11.8 requires TLS),
-  #   DBInstanceClass, AllocatedStorage "20",
-  #   MasterUsername admin,
-  #   MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}",
-  #   DBName wordpress, DBSubnetGroupName, VPCSecurityGroups (the db group from the network stack),
-  #   PubliclyAccessible false, MultiAZ false, BackupRetentionPeriod 1 (Free plan allows at most 1), DeleteAutomatedBackups true
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub ${Prefix}-db
+      Engine: mariadb
+      EngineVersion: "11.4"
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: "20"
+      StorageEncrypted: true
+      MasterUsername: admin
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}"
+      DBName: wordpress
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-db-sg-id"}
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: !Ref BackupDays
+      DeleteAutomatedBackups: true
 
   # Step 10: EFS (AWS::EFS::FileSystem) with Encrypted: true and FileSystemTags Name ${Prefix}-efs
-  # TODO FileSystem
-  # TODO MountTargetA and MountTargetB (AWS::EFS::MountTarget), one per private subnet, efs group
-
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub ${Prefix}-efs
+  MountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !ImportValue {"Fn::Sub": "${Prefix}-private-a-id"}
+      SecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-efs-sg-id"}
+  MountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !ImportValue {"Fn::Sub": "${Prefix}-private-b-id"}
+      SecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-efs-sg-id"}
+        
 Outputs:
   DbSecretArn:
     Value: !Ref DbSecret
     Export: {Name: !Sub "${Prefix}-db-secret-arn"}
-  # TODO DbEndpoint (!GetAtt Database.Endpoint.Address), export ${Prefix}-db-endpoint
-  # TODO FileSystemId (!Ref FileSystem), export ${Prefix}-efs-id
+  DbEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+    Export: {Name: !Sub "${Prefix}-db-endpoint"}
+  FileSystemId:
+    Value: !Ref FileSystem
+    Export: {Name: !Sub "${Prefix}-efs-id"}
+
