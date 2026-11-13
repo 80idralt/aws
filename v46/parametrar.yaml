@@ -16,7 +16,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${Prefix}-vpc
-        # Step 2 of the demo: add this tag, then look at the change set
+        # Added afterwards to try a change set. The VPC keeps its id.
         - Key: Course
           Value: MOV25
 

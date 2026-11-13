@@ -1,10 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Novatrix web layer (v42, v43 and v45 as code): the role and instance profile for the
-  web server, and the web server novatrix-web in the public subnet. User data installs
-  WordPress and mounts EFS on wp-content. The WordPress installer is run in the browser.
-  Needs the network and data stacks. Stack name: novatrix-webb.
-  Skeleton: the role and the user data are done, the instance is yours, see Del 14B step 11.
+  Novatrix web (v42, v43 and v45 as code): the server role and the web server
+  novatrix-web in the public subnet. User data installs WordPress, mounts EFS on
+  wp-content and writes wp-config.php with the password from Secrets Manager.
+  Needs novatrix-natverk and novatrix-data. Stack name: novatrix-webb.
 
 Parameters:
   Prefix:
@@ -31,7 +30,8 @@ Parameters:
     Description: Latest Amazon Linux 2023, looked up when the stack is deployed
 
 Resources:
-  # Same role as in v43 and v45, read from the v43 bucket and write backups
+  # The server role, same name as in v43. It may read the v43 bucket,
+  # write backups to backup/ and read the database secret. Nothing more.
   WebRole:
     Type: AWS::IAM::Role
     Properties:
@@ -54,6 +54,7 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - {Effect: Allow, Action: s3:PutObject, Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"}
+        # Only this one secret, so the server can write wp-config.php itself
         - PolicyName: !Sub ${Prefix}-db-secret-read
           PolicyDocument:
             Version: "2012-10-17"
@@ -62,12 +63,14 @@ Resources:
                 Action: secretsmanager:GetSecretValue
                 Resource: !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
 
+  # The holder that EC2 uses to get the role, same name as the role
   WebInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       InstanceProfileName: !Sub ${Prefix}-ec2-s3-read
       Roles: [!Ref WebRole]
-      
+
+  # The web server. The Project tag lets the drift group from v43 start and stop it.
   WebServer:
     Type: AWS::EC2::Instance
     Properties:
@@ -97,13 +100,14 @@ Resources:
             for i in 1 2 3 4 5 6 7 8 9 10; do mount -a && mountpoint -q /var/www/html/wp-content && break; sleep 15; done
             mountpoint -q /var/www/html/wp-content
 
-            # WordPress. -n keeps files that already are on EFS (a second server in v47)
+            # WordPress. -n keeps files that already are on EFS, if another server put them there
             cd /tmp
             curl -sSLo latest.tar.gz https://wordpress.org/latest.tar.gz
             tar -xzf latest.tar.gz
             cp -rn /tmp/wordpress/. /var/www/html/
 
-            # wp-config.php from the secret, so nobody types the database password
+            # wp-config.php from the secret, so nobody types the database password.
+            # set +x keeps the password out of the log.
             set +x
             SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
             DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
@@ -131,7 +135,7 @@ Outputs:
   PublicIp:
     Value: !GetAtt WebServer.PublicIp
   WebUrl:
-    Description: Open this and run the WordPress installer (Database Host is DbEndpoint from the data stack)
+    Description: Open this and choose site name and admin user, the database is already set up
     Value: !Sub "http://${WebServer.PublicIp}"
   InstanceId:
     Value: !Ref WebServer

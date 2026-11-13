@@ -1,17 +1,18 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Novatrix data layer (v45 as code). Needs the network stack. Stack name: novatrix-data.
+  Novatrix data (v45 as code): the database, its password in Secrets Manager
+  and EFS for wp-content. Needs novatrix-natverk. Stack name: novatrix-data.
 
 Parameters:
   Prefix:
     Type: String
     Default: novatrix
     AllowedPattern: "[a-z][a-z0-9-]*"
+    Description: Same prefix as the network stack
   DbInstanceClass:
     Type: String
     Default: db.t3.micro
     AllowedValues: [db.t3.micro, db.t3.small]
-
   BackupDays:
     Type: Number
     Default: 1
@@ -20,7 +21,7 @@ Parameters:
     Description: Days of automatic backup. Free plan allows at most 1, use 14 on a paid account
 
 Resources:
-  # Step 9: subnet group and the generated password are done
+  # The database may only live in the two private subnets
   DbSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -30,6 +31,8 @@ Resources:
         - !ImportValue {"Fn::Sub": "${Prefix}-private-a-id"}
         - !ImportValue {"Fn::Sub": "${Prefix}-private-b-id"}
 
+  # AWS makes up the password, nobody types it. Only letters and digits,
+  # so the web server can put it in wp-config.php with sed.
   DbSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -40,7 +43,9 @@ Resources:
         PasswordLength: 24
         ExcludePunctuation: true
 
-  # Step 9: the database (AWS::RDS::DBInstance). Same settings as in v45.
+  # Same database as in v45. MariaDB 11.4, because 11.8 requires TLS.
+  # DeletionPolicy Delete: no paid final snapshot when the stack is removed,
+  # the long-term backups go to the S3 bucket instead.
   Database:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Delete
@@ -62,10 +67,10 @@ Resources:
       BackupRetentionPeriod: !Ref BackupDays
       DeleteAutomatedBackups: true
       Tags:
-       - Key: Course
-         Value: MOV25
+        - Key: Course
+          Value: MOV25
 
-  # Step 10: EFS (AWS::EFS::FileSystem) with Encrypted: true and FileSystemTags Name ${Prefix}-efs
+  # Shared disk for wp-content, so uploaded images survive a new web server
   FileSystem:
     Type: AWS::EFS::FileSystem
     Properties:
@@ -75,6 +80,8 @@ Resources:
       FileSystemTags:
         - Key: Name
           Value: !Sub ${Prefix}-efs
+
+  # One mount target in each private subnet, guarded by the EFS group
   MountTargetA:
     Type: AWS::EFS::MountTarget
     Properties:
@@ -82,6 +89,7 @@ Resources:
       SubnetId: !ImportValue {"Fn::Sub": "${Prefix}-private-a-id"}
       SecurityGroups:
         - !ImportValue {"Fn::Sub": "${Prefix}-efs-sg-id"}
+
   MountTargetB:
     Type: AWS::EFS::MountTarget
     Properties:
@@ -89,7 +97,8 @@ Resources:
       SubnetId: !ImportValue {"Fn::Sub": "${Prefix}-private-b-id"}
       SecurityGroups:
         - !ImportValue {"Fn::Sub": "${Prefix}-efs-sg-id"}
-        
+
+# Exports that the web stack reads
 Outputs:
   DbSecretArn:
     Value: !Ref DbSecret
@@ -100,4 +109,3 @@ Outputs:
   FileSystemId:
     Value: !Ref FileSystem
     Export: {Name: !Sub "${Prefix}-efs-id"}
-
