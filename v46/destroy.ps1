@@ -1,7 +1,8 @@
-# Novatrix v46: river miljön i omvänd ordning, webb, data, nät.
-# Kör:  .\destroy.ps1                       river novatrix
-#       .\destroy.ps1 -Prefix novatrix-test  river kopian
-# Bucketarna och key pairet ingår inte i någon stack och ligger kvar.
+# Novatrix v46: removes the environment in reverse order, web, data, network.
+# Run:  .\destroy.ps1                       removes novatrix
+#       .\destroy.ps1 -Prefix novatrix-test  removes the copy
+# The buckets and the key pair are not part of any stack and stay.
+# The database and EFS go with the data stack. Run backup.sh first to keep the content.
 
 param(
     [string]$Prefix = "novatrix"
@@ -10,11 +11,12 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
-# Omvänd ordning, annars stoppar CloudFormation eftersom exporterna används
-foreach ($Lager in "webb", "data", "natverk") {
-    $Stack = "$Prefix-$Lager"
+# Reverse order. CloudFormation refuses to remove a stack whose exports are still in use.
+foreach ($Layer in "webb", "data", "natverk") {
+    $Stack = "$Prefix-$Layer"
     Write-Host "River $Stack ..."
     aws cloudformation delete-stack --stack-name $Stack
+    # delete-stack only starts the job, wait so the next layer is free
     aws cloudformation wait stack-delete-complete --stack-name $Stack
 }
 

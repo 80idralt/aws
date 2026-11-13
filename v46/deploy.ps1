@@ -1,7 +1,8 @@
-# Novatrix v46: bygger hela miljön från de tre templaterna i ordningen nät, data, webb.
-# Kör:  .\deploy.ps1                       bygger novatrix
-#       .\deploy.ps1 -Prefix novatrix-test  bygger en kopia med andra namn
-# Kräver: inloggad med "aws login", key pair novatrix-key och de två bucketarna.
+# Novatrix v46: builds the whole environment from the three templates, network, data, web.
+# Run:  .\deploy.ps1                       builds novatrix
+#       .\deploy.ps1 -Prefix novatrix-test  builds a copy with other names
+# Needs: logged in with "aws login", key pair novatrix-key and the two buckets.
+# Safe to run again. What already matches the files is left alone.
 
 param(
     [string]$Prefix = "novatrix"
@@ -10,34 +11,36 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
-# Det här byter man om man bygger i ett annat konto
-$Nyckel       = "novatrix-key"
+# The only values to change when building in another account
+$KeyName      = "novatrix-key"
 $DataBucket   = "novatrix-data-80idralt-01"
 $BackupBucket = "novatrix-backup-80idralt-01"
 
-# Min IP just nu, för SSH
-$MinIp = (Invoke-RestMethod "https://checkip.amazonaws.com").Trim()
+# My public IP right now, only this address may use SSH
+$MyIp = (Invoke-RestMethod "https://checkip.amazonaws.com").Trim()
 
 Set-Location $PSScriptRoot
 
-# Validera alla tre först, så att ett skrivfel stoppar innan något byggs
-foreach ($Fil in "natverk.yaml", "data.yaml", "webb.yaml") {
-    aws cloudformation validate-template --template-body "file://$Fil" | Out-Null
-    Write-Host "$Fil validerad"
+# Validate all three first, so a typo stops us before anything is built
+foreach ($File in "natverk.yaml", "data.yaml", "webb.yaml") {
+    aws cloudformation validate-template --template-body "file://$File" | Out-Null
+    Write-Host "$File validerad"
 }
 
-# Bygg i ordningen nät, data, webb. Varje lager läser exporter från lagret före.
+# Network, data, web. Each layer reads the exports of the layer before it.
+# --no-fail-on-empty-changeset: "No changes" is not an error when run again.
 aws cloudformation deploy --template-file natverk.yaml --stack-name "$Prefix-natverk" `
     --no-fail-on-empty-changeset `
-    --parameter-overrides "Prefix=$Prefix" "MyIp=$MinIp/32"
+    --parameter-overrides "Prefix=$Prefix" "MyIp=$MyIp/32"
 
 aws cloudformation deploy --template-file data.yaml --stack-name "$Prefix-data" `
     --no-fail-on-empty-changeset `
     --parameter-overrides "Prefix=$Prefix"
 
+# CAPABILITY_NAMED_IAM: we accept that this stack creates a role with its own name
 aws cloudformation deploy --template-file webb.yaml --stack-name "$Prefix-webb" `
     --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM `
-    --parameter-overrides "Prefix=$Prefix" "KeyName=$Nyckel" "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
+    --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
 
 $Url = aws cloudformation describe-stacks --stack-name "$Prefix-webb" `
     --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text

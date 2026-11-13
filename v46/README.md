@@ -26,7 +26,8 @@ Ett skript bygger allt med ett kommando och ett annat river allt. Webbservern h�
 4. [Delmoment 4: Versionshantering](#delmoment-4-versionshantering)
 5. [Delmoment 5: Så återskapar du miljön](#delmoment-5-så-återskapar-du-miljön)
 6. [VG: Hela stacken som kod](#vg-hela-stacken-som-kod)
-7. [Bilaga: templates och skript](#bilaga-templates-och-skript)
+7. [VG: Varför jag har valt som jag gjort](#vg-varför-jag-har-valt-som-jag-gjort)
+8. [Bilaga: templates och skript](#bilaga-templates-och-skript)
 
 ## Delmoment 1: Repo
 
@@ -39,13 +40,15 @@ Allt ligger i mappen `v46`:
 | `webb.yaml` | Stacken novatrix-webb med serverns roll och webbservern |
 | `deploy.ps1` | Bygger alla tre stackarna i rätt ordning |
 | `destroy.ps1` | River alla tre i omvänd ordning |
+| `backup.sh` | Körs på webbservern. Sparar databasen och bilderna i S3 |
+| `restore.sh` | Körs på en nybyggd webbserver. Läser in backupen och byter till den nya adressen |
 | `images/` | Skärmbilder |
 
 Templaterna började som ett startpaket med färdiga delar och luckor. Luckorna skrev jag själv. Det var de privata subnäten, vägen ut till internet, NACL-reglerna, security groups för databas och EFS, databasen, EFS och webbserverns inställningar. Lösenordet till WordPress och skripten är också mina egna.
 
 ### Innan jag kunde börja
 
-CloudFormation tar inte över resurser som redan finns. Finns det en resurs med samma namn stoppar bygget. Min handbyggda miljö från v45 var redan riven. Det enda som krockade var rollen `novatrix-ec2-s3-read` från v43, eftersom `webb.yaml` skapar en roll med samma namn.
+CloudFormation tar inte över resurser som redan finns. Finns det en resurs med samma namn stoppar bygget. Min handbyggda miljö från v45 var redan riven. Det fanns alltså ingen databas kvar att ta backup på före övergången. Den senaste dumpen från v45 låg redan i backup-bucketen. Det enda som krockade var rollen `novatrix-ec2-s3-read` från v43, eftersom `webb.yaml` skapar en roll med samma namn.
 
 En roll går inte att ta bort så länge något sitter fast i den. Jag tog bort den baklänges mot hur den byggdes:
 
@@ -115,7 +118,7 @@ Det som är likadant varje gång står direkt i filen. Det gäller till exempel 
 - **Lösenordet är en egen resurs i stacken.** AWS slumpar fram 24 bokstäver och siffror. Databasen hämtar det med `{{resolve:secretsmanager:...}}` när den skapas. Det står aldrig i någon fil.
 - **`DeletionPolicy: Delete` på databasen.** Utan den tar AWS en sista snapshot när stacken rivs. Den kostar pengar. I v45 glömde jag den rutan i konsolen. Nu står valet i koden.
 - **Ingen bastion den här veckan.** Webbservern tar emot SSH bara från min egen IP, både i security groupen och i NACL:en. Jag valde bort bastionen för att hålla fokus på CloudFormation.
-- **Rollen skriver backuper direkt.** I v43 och v45 lånade servern rollen `novatrix-backup-write` för att få skriva i backup-bucketen. Nu får serverns egen roll lägga filer i `backup/`, men inte läsa eller radera. `backup.sh` från v45 använder fortfarande den lånade rollen och behöver därför justeras innan den körs mot den här miljön.
+- **Rollen skriver backuper direkt.** I v43 och v45 lånade servern rollen `novatrix-backup-write` för att få skriva i backup-bucketen. Nu får serverns egen roll lägga filer i `backup/`, men inte läsa eller radera. Därför har v46 ett eget `backup.sh` som inte behöver den lånade rollen.
 - **Bucketarna ligger utanför stackarna.** Data ska finnas kvar när miljön rivs. En bucket med innehåll går dessutom inte att ta bort med CloudFormation. Webbstacken får bucketnamnen som parametrar. Livscykelregeln från v45 sitter kvar på backup-bucketen.
 
 ## Delmoment 3: Deploya från kod
@@ -240,6 +243,40 @@ Enter password:
 Alla tre stackarna blev klara. Datastacken står som UPDATE_COMPLETE eftersom jag ändrade den i Delmoment 4.
 
 ![De tre stackarna i CloudFormation](images/07-tre-stackar.png)
+
+### Kontroll före inlämning
+
+Vid den sista uppbyggnaden kontrollerade jag stackarna som text. Alla tre var klara och ingen stod i ROLLBACK_COMPLETE:
+
+```
+PS> aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE --query "StackSummaries[].[StackName,StackStatus]" --output table
+-----------------------------------------
+|              ListStacks               |
++-------------------+-------------------+
+|  novatrix-webb    |  CREATE_COMPLETE  |
+|  novatrix-data    |  CREATE_COMPLETE  |
+|  novatrix-natverk |  CREATE_COMPLETE  |
++-------------------+-------------------+
+```
+
+Sedan lät jag CloudFormation jämföra varje stack med sin fil. Det kallas att leta efter drift. Drift uppstår om någon ändrar något i konsolen i stället för i filen. Alla tre stämde:
+
+```
+PS> foreach ($S in "novatrix-natverk", "novatrix-data", "novatrix-webb") { aws cloudformation detect-stack-drift --stack-name $S | Out-Null }
+PS> Start-Sleep 30
+PS> $Q = "Stacks[?starts_with(StackName,'novatrix')]" +
+>>   ".[StackName,DriftInformation.StackDriftStatus]"
+PS> aws cloudformation describe-stacks --query $Q --output table
+---------------------------------
+|        DescribeStacks         |
++-------------------+-----------+
+|  novatrix-webb    |  IN_SYNC  |
+|  novatrix-data    |  IN_SYNC  |
+|  novatrix-natverk |  IN_SYNC  |
++-------------------+-----------+
+```
+
+IN_SYNC betyder att miljön i AWS är exakt det som står i repot.
 
 ## Delmoment 4: Versionshantering
 
@@ -576,7 +613,7 @@ Det som måste vara unikt har prefixet i namnet:
 | Subnet groupen, `novatrix-test-db-subnets` | regionen |
 | Security groups, `novatrix-test-web-sg` och de andra | VPC:t |
 
-Hade ett enda namn varit hårdkodat hade kopian stoppat på just den raden. Hemligheten har inget eget namn. CloudFormation hittar på ett, så den kan inte krocka.
+Hade ett enda namn varit hårdkodat hade kopian stoppat på just den raden. Hemligheten har med flit inget eget namn. När en stack rivs tas hemligheten inte bort direkt. Den står kvar en tid innan den försvinner helt. Hade den haft ett fast namn hade nästa bygge krockat med den gamla. Nu hittar CloudFormation på ett nytt namn varje gång.
 
 Jag rev kopian samma kväll med `.\destroy.ps1 -Prefix novatrix-test`. Två databaser kostar dubbelt.
 
@@ -595,11 +632,180 @@ Om någon öppnar en port för hela internet syns det i `git diff` och i histori
 
 ### Om jag river i fel ordning
 
-Datastacken använder nätverksstackens exporter. Om jag försöker riva nätet först vägrar CloudFormation. Meddelandet säger vilken stack som fortfarande använder exporten. Därför river `destroy.ps1` i ordningen webb, data, nät.
+Datastacken använder nätverksstackens exporter. Webbstacken använder datastackens. Det går att fråga CloudFormation vem som använder en export:
+
+```
+PS> aws cloudformation list-imports --export-name novatrix-private-a-id --output table
+---------------------
+|    ListImports    |
++-------------------+
+||     Imports     ||
+|+-----------------+|
+||  novatrix-data  ||
+|+-----------------+|
+
+PS> aws cloudformation list-imports --export-name novatrix-efs-id --output table
+---------------------
+|    ListImports    |
++-------------------+
+||     Imports     ||
+|+-----------------+|
+||  novatrix-webb  ||
+|+-----------------+|
+```
+
+Om jag försöker riva nätet först vägrar CloudFormation, eftersom novatrix-data fortfarande använder subnätet. Meddelandet säger vilken stack det gäller. Därför river `destroy.ps1` i ordningen webb, data, nät.
 
 ### Riva och bygga mellan passen
 
-Databasen kostar varje timme den finns. Nu när miljön är kod river jag den när jag är klar för dagen och bygger den igen nästa gång. Det tar en kvart. Det enda som inte följer med är innehållet i databasen och på EFS. Det måste sparas med en backup först.
+Databasen kostar varje timme den finns. Nu när miljön är kod river jag den när jag är klar för dagen och bygger den igen nästa gång. Det tar en kvart. Det enda som inte följer med är innehållet i databasen och på EFS. Det sparar jag med en backup först, se nästa avsnitt.
+
+### Backup och återställning i en ny miljö
+
+Databasen och EFS rivs med datastacken. En nybyggd miljö är tom. Jag ville visa att innehållet ändå går att få tillbaka.
+
+Två saker behöver sparas. Inlägg, sidor och användare ligger i databasen. Bilderna ligger på EFS. `backup.sh` sparar båda i backup-bucketen. Adressen och lösenordet läser skriptet från `wp-config.php` på servern, så jag behöver inte skriva in något.
+
+Först skrev jag ett inlägg med en bild i en nybyggd miljö:
+
+![Inlägget före backupen](images/15-fore-backup.png)
+
+Sedan körde jag backupen på servern och kontrollerade att filerna inte var tomma:
+
+```bash
+[ec2-user@ip-10-0-1-156 ~]$ bash backup.sh
+upload: ../../tmp/wordpress-2026-11-13-0925.sql to s3://novatrix-backup-80idralt-01/backup/wordpress-2026-11-13-0925.sql
+upload: ../../tmp/uploads-2026-11-13-0925.tgz to s3://novatrix-backup-80idralt-01/backup/uploads-2026-11-13-0925.tgz
+Klart: wordpress-2026-11-13-0925.sql och uploads-2026-11-13-0925.tgz ligger i s3://novatrix-backup-80idralt-01/backup/
+```
+
+```
+PS> aws s3 ls s3://novatrix-backup-80idralt-01/backup/
+2026-11-04 18:49:53          0
+2026-11-13 10:25:29    4730261 uploads-2026-11-13-0925.tgz
+2026-11-04 19:27:39    1059413 wordpress-2026-11-04.sql
+2026-11-05 10:57:31    1056296 wordpress-2026-11-05-0956.sql
+2026-11-13 10:25:29    1045746 wordpress-2026-11-13-0925.sql
+```
+
+Raden utan namn är själva mappen `backup/`. Tiden i filnamnen är serverns tid, som går efter UTC.
+
+Därefter rev jag hela miljön med `destroy.ps1` och byggde den igen med `deploy.ps1`. Den nya servern fick en ny adress och databasen var tom.
+
+Serverns roll får lägga filer i `backup/`, men inte läsa dem. Det är med flit. Blir servern hackad kommer angriparen inte åt gamla backuper. Därför hämtade jag filerna som admin och skickade upp dem till den nya servern:
+
+```powershell
+aws s3 cp s3://novatrix-backup-80idralt-01/backup/wordpress-2026-11-13-0925.sql $env:TEMP\
+aws s3 cp s3://novatrix-backup-80idralt-01/backup/uploads-2026-11-13-0925.tgz $env:TEMP\
+$Ip = aws cloudformation describe-stacks --stack-name novatrix-webb --query "Stacks[0].Outputs[?OutputKey=='PublicIp'].OutputValue" --output text
+scp -i $HOME\.ssh\novatrix-key.pem restore.sh $env:TEMP\wordpress-2026-11-13-0925.sql $env:TEMP\uploads-2026-11-13-0925.tgz "ec2-user@${Ip}:~/"
+```
+
+Filerna lade jag i en tillfällig mapp och inte i repot. Dumpen innehåller användarnas lösenordsdata och ska aldrig hamna på GitHub.
+
+På den nya servern körde jag `restore.sh`. Den läser in dumpen, packar upp bilderna på EFS och byter adress. WordPress sparar nämligen sin egen adress i databasen, även i länkarna till bilderna. Utan bytet hade sidan skickat besökaren till den gamla servern, som inte finns längre.
+
+```bash
+[ec2-user@ip-10-0-1-131 ~]$ bash restore.sh wordpress-2026-11-13-0925.sql uploads-2026-11-13-0925.tgz
+Bytte http://13.48.29.128 mot http://51.20.74.93
+Klart. Öppna http://51.20.74.93
+```
+
+Inlägget fanns i den nya databasen. Adressen var den nya och bilderna låg på det nya EFS:
+
+```bash
+[ec2-user@ip-10-0-1-131 ~]$ mysql -h "$DB" -u admin wordpress -e "SELECT ID, post_title FROM wp_posts WHERE post_status='publish';"
++----+---------------+
+| ID | post_title    |
++----+---------------+
+|  1 | Hello world!  |
+|  2 | Sample Page   |
+|  4 | Navigation    |
+|  6 | Ny post idag  |
+|  7 | Custom Styles |
++----+---------------+
+[ec2-user@ip-10-0-1-131 ~]$ mysql -h "$DB" -u admin wordpress -e "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('siteurl','home');"
++-------------+--------------------+
+| option_name | option_value       |
++-------------+--------------------+
+| home        | http://51.20.74.93 |
+| siteurl     | http://51.20.74.93 |
++-------------+--------------------+
+[ec2-user@ip-10-0-1-131 ~]$ ls -l /var/www/html/wp-content/uploads/2026/11/
+total 4628
+-rw-r--r--. 1 apache apache 1610572 Nov 13 09:19 Skarmbild-2026-11-12-152418-1024x887.png
+-rw-r--r--. 1 apache apache   47227 Nov 13 09:19 Skarmbild-2026-11-12-152418-150x150.png
+-rw-r--r--. 1 apache apache  160106 Nov 13 09:19 Skarmbild-2026-11-12-152418-300x260.png
+-rw-r--r--. 1 apache apache  962355 Nov 13 09:19 Skarmbild-2026-11-12-152418-768x665.png
+-rw-r--r--. 1 apache apache 1948356 Nov 13 09:19 Skarmbild-2026-11-12-152418.png
+```
+
+Lösenordet till mysql läste jag ur `wp-config.php` på samma sätt som skripten gör. Det syns inte i utskriften.
+
+Sidan på den nya adressen visade samma inlägg med samma bild. Installationsguiden kom aldrig, eftersom databasen redan hade allt.
+
+![Inlägget efter återställningen, på den nya servern](images/16-efter-aterstallning.png)
+
+## VG: Varför jag har valt som jag gjort
+
+### Varför tre stackar och inte en eller fem?
+
+En enda stack hade gjort varje ändring riskabel. Ett misstag i webbserverns inställningar hade kunnat röra databasen, eftersom allt hör till samma stack. Rivningen hade också varit allt eller inget.
+
+Fem stackar, till exempel med security groups, IAM och EFS som egna lager, hade gett fler exporter och fler beroenden att hålla reda på. Ordningen för att bygga och riva hade blivit längre och lättare att göra fel i. De delarna ändras dessutom tillsammans med sitt lager. En ny port för databasen hör ihop med nätet. Rollen hör ihop med servern som använder den.
+
+Tre lager följer hur miljön faktiskt används. Nätet ändras sällan. Datalagret ska vara stabilt, eftersom det håller innehållet. Webbservern byts ut oftast. Nästa steg, en lastbalanserare, kan läggas till som ett fjärde lager ovanpå utan att de tre första ändras.
+
+### Varför är just de här värdena parametrar?
+
+Jag frågade för varje värde om det skiljer sig mellan två användningar av filerna. Gör det det blev det en parameter. Annars står det i filen.
+
+- Det som skiljer mellan personer och konton är key pair, bucketnamn och min IP.
+- Det som skiljer mellan miljöer är prefixet.
+- Det som kan behöva växa är storleken på servern och databasen. Därför har de standardvärden och en lista över tillåtna val, så att ingen kan skriva in något felstavat.
+- Antal dagar med backup är en parameter, eftersom Free plan bara tillåter en dag.
+
+Adressintervall och portar ändras aldrig och står därför i filen. Fler parametrar hade gjort filerna svårare att använda och lättare att fylla i fel.
+
+### Finns det något i miljön som inte kommer från en template?
+
+Ja. Det är med flit:
+
+| Utanför stackarna | Varför |
+|---|---|
+| Bucketarna för data och backup | Data ska överleva att miljön rivs. Backupen är till för att kunna bygga upp igen. En bucket med innehåll går inte heller att ta bort med CloudFormation, så rivningen hade fastnat |
+| Livscykelregeln på backup-bucketen | Den hör till bucketen och ska gälla hur många gånger miljön än rivs |
+| Key pairet | Den privata nyckeln ska bara finnas på min dator. Skapar en stack nyckeln måste den lämna ut den någonstans |
+| Grupperna och användarna från v43 | De beskriver människor och deras behörigheter, inte miljön. De ska inte försvinna när servern rivs |
+
+Allt annat, alltså nät, regler, roll, server, databas, lösenord och filsystem, kommer från templaterna. Ingenting är klickat i konsolen.
+
+Är det rätt att bucketarna ligger utanför? För data tycker jag det. Nackdelen är att någon som börjar i ett tomt konto först måste skapa bucketarna, till exempel med skriptet från v43. Ett alternativ hade varit en egen stack bara för bucketarna, med en inställning som gör att de står kvar när stacken rivs. Då hade allt funnits som kod. Det har jag inte gjort den här veckan.
+
+### Varför ingen bastion och ingen NAT gateway?
+
+Bastionen från v44 valde jag bort för att hålla fokus på CloudFormation. SSH går direkt till webbservern, men bara från min IP. Det står både i security groupen och i NACL:en. Ska fler personer logga in, eller servern flyttas till ett privat subnät, är bastionen det första jag lägger tillbaka.
+
+En NAT gateway hade gett de privata subnäten en väg ut till internet. Databasen och EFS behöver ingen sådan väg. AWS sköter deras uppdateringar. Utan väg ut kan de inte heller skicka något vidare om de skulle bli angripna. En NAT gateway kostar dessutom pengar varje timme.
+
+### Varför Secrets Manager och inte ett lösenord som parameter?
+
+En parameter kan döljas i konsolen med NoEcho, men någon måste fortfarande hitta på lösenordet och skriva in det. Då finns det i någons terminal, historik eller urklipp. Med Secrets Manager skapar AWS lösenordet själv. Databasen och webbservern hämtar det därifrån. Ingen människa behöver se det. Filen `wp-config.php` som innehåller lösenordet skapas bara på servern och står i `.gitignore`, så den kan aldrig hamna i repot.
+
+### Vad måste ändras för att bygga i en annan region?
+
+Nästan ingenting i templaterna:
+
+- Zonerna letas upp med `!GetAZs`, så eu-north-1a står ingenstans.
+- Senaste Amazon Linux slås upp i den region stacken byggs i.
+- User data använder `${AWS::Region}` när den hämtar lösenordet.
+
+Det som måste finnas eller ändras utanför:
+
+- **Key pairet** finns bara i den region där det skapades. Ett nytt behövs i den nya regionen.
+- **Regionen i AWS CLI** styr var `deploy.ps1` bygger. Den byts med `aws configure` eller variabeln `AWS_REGION`.
+- **Bucketarna** kan ligga kvar i Stockholm och fungerar ändå. Data hamnar då i ett annat land än servrarna. Det kan spela roll för kostnad och för var data får lagras.
+- **MariaDB 11.4 och db.t3.micro** måste finnas i den nya regionen. Det gör de i de flesta.
 
 ## Bilaga: templates och skript
 
@@ -1089,10 +1295,11 @@ Outputs:
 ### deploy.ps1
 
 ```powershell
-# Novatrix v46: bygger hela miljön från de tre templaterna i ordningen nät, data, webb.
-# Kör:  .\deploy.ps1                       bygger novatrix
-#       .\deploy.ps1 -Prefix novatrix-test  bygger en kopia med andra namn
-# Kräver: inloggad med "aws login", key pair novatrix-key och de två bucketarna.
+# Novatrix v46: builds the whole environment from the three templates, network, data, web.
+# Run:  .\deploy.ps1                       builds novatrix
+#       .\deploy.ps1 -Prefix novatrix-test  builds a copy with other names
+# Needs: logged in with "aws login", key pair novatrix-key and the two buckets.
+# Safe to run again. What already matches the files is left alone.
 
 param(
     [string]$Prefix = "novatrix"
@@ -1101,34 +1308,36 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
-# Det här byter man om man bygger i ett annat konto
-$Nyckel       = "novatrix-key"
+# The only values to change when building in another account
+$KeyName      = "novatrix-key"
 $DataBucket   = "novatrix-data-80idralt-01"
 $BackupBucket = "novatrix-backup-80idralt-01"
 
-# Min IP just nu, för SSH
-$MinIp = (Invoke-RestMethod "https://checkip.amazonaws.com").Trim()
+# My public IP right now, only this address may use SSH
+$MyIp = (Invoke-RestMethod "https://checkip.amazonaws.com").Trim()
 
 Set-Location $PSScriptRoot
 
-# Validera alla tre först, så att ett skrivfel stoppar innan något byggs
-foreach ($Fil in "natverk.yaml", "data.yaml", "webb.yaml") {
-    aws cloudformation validate-template --template-body "file://$Fil" | Out-Null
-    Write-Host "$Fil validerad"
+# Validate all three first, so a typo stops us before anything is built
+foreach ($File in "natverk.yaml", "data.yaml", "webb.yaml") {
+    aws cloudformation validate-template --template-body "file://$File" | Out-Null
+    Write-Host "$File validerad"
 }
 
-# Bygg i ordningen nät, data, webb. Varje lager läser exporter från lagret före.
+# Network, data, web. Each layer reads the exports of the layer before it.
+# --no-fail-on-empty-changeset: "No changes" is not an error when run again.
 aws cloudformation deploy --template-file natverk.yaml --stack-name "$Prefix-natverk" `
     --no-fail-on-empty-changeset `
-    --parameter-overrides "Prefix=$Prefix" "MyIp=$MinIp/32"
+    --parameter-overrides "Prefix=$Prefix" "MyIp=$MyIp/32"
 
 aws cloudformation deploy --template-file data.yaml --stack-name "$Prefix-data" `
     --no-fail-on-empty-changeset `
     --parameter-overrides "Prefix=$Prefix"
 
+# CAPABILITY_NAMED_IAM: we accept that this stack creates a role with its own name
 aws cloudformation deploy --template-file webb.yaml --stack-name "$Prefix-webb" `
     --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM `
-    --parameter-overrides "Prefix=$Prefix" "KeyName=$Nyckel" "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
+    --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
 
 $Url = aws cloudformation describe-stacks --stack-name "$Prefix-webb" `
     --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text
@@ -1139,10 +1348,11 @@ Write-Host "Klart. Sidan: $Url (user data behöver 2-3 minuter till)"
 ### destroy.ps1
 
 ```powershell
-# Novatrix v46: river miljön i omvänd ordning, webb, data, nät.
-# Kör:  .\destroy.ps1                       river novatrix
-#       .\destroy.ps1 -Prefix novatrix-test  river kopian
-# Bucketarna och key pairet ingår inte i någon stack och ligger kvar.
+# Novatrix v46: removes the environment in reverse order, web, data, network.
+# Run:  .\destroy.ps1                       removes novatrix
+#       .\destroy.ps1 -Prefix novatrix-test  removes the copy
+# The buckets and the key pair are not part of any stack and stay.
+# The database and EFS go with the data stack. Run backup.sh first to keep the content.
 
 param(
     [string]$Prefix = "novatrix"
@@ -1151,13 +1361,90 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
-# Omvänd ordning, annars stoppar CloudFormation eftersom exporterna används
-foreach ($Lager in "webb", "data", "natverk") {
-    $Stack = "$Prefix-$Lager"
+# Reverse order. CloudFormation refuses to remove a stack whose exports are still in use.
+foreach ($Layer in "webb", "data", "natverk") {
+    $Stack = "$Prefix-$Layer"
     Write-Host "River $Stack ..."
     aws cloudformation delete-stack --stack-name $Stack
+    # delete-stack only starts the job, wait so the next layer is free
     aws cloudformation wait stack-delete-complete --stack-name $Stack
 }
 
 Write-Host "Klart. Kvar finns bara bucketarna och key pairet."
+```
+
+### backup.sh
+
+```bash
+#!/bin/bash
+# Novatrix v46: backup of the database and the uploaded files to S3.
+# Run on novatrix-web:  bash backup.sh
+# Address and password are read from wp-config.php, so nobody types them.
+set -euo pipefail
+
+BUCKET="novatrix-backup-80idralt-01"
+REGION="eu-north-1"
+CONFIG=/var/www/html/wp-config.php
+STAMP=$(date +%F-%H%M)
+DUMP="/tmp/wordpress-$STAMP.sql"
+FILES="/tmp/uploads-$STAMP.tgz"
+
+# Always remove the copies from the server when we are done
+trap 'rm -f "$DUMP" "$FILES"' EXIT
+
+# MYSQL_PWD keeps the password off the command line and out of the history
+DB_HOST=$(sed -n "s/.*'DB_HOST', '\(.*\)'.*/\1/p" "$CONFIG")
+export MYSQL_PWD=$(sed -n "s/.*'DB_PASSWORD', '\(.*\)'.*/\1/p" "$CONFIG")
+
+# 1. The database: posts, pages and users
+mysqldump --single-transaction -h "$DB_HOST" -u admin wordpress > "$DUMP"
+
+# 2. The images live on EFS, not in the database, so they need their own copy
+tar -czf "$FILES" -C /var/www/html/wp-content uploads
+
+# 3. To S3. The role may only put files in backup/, not read or delete them,
+#    so a hacked server cannot get at old backups.
+aws s3 cp "$DUMP" "s3://$BUCKET/backup/" --region "$REGION"
+aws s3 cp "$FILES" "s3://$BUCKET/backup/" --region "$REGION"
+echo "Klart: $(basename "$DUMP") och $(basename "$FILES") ligger i s3://$BUCKET/backup/"
+```
+
+### restore.sh
+
+```bash
+#!/bin/bash
+# Novatrix v46: loads a backup into a newly built environment.
+# Run on novatrix-web:  bash restore.sh wordpress-DATE.sql uploads-DATE.tgz
+# The server role cannot read backups, so I fetch the files from S3 as admin
+# and copy them here with scp first.
+set -euo pipefail
+
+DUMP="$1"
+FILES="$2"
+CONFIG=/var/www/html/wp-config.php
+
+# The new server already wrote wp-config.php from the secret, read it from there
+DB_HOST=$(sed -n "s/.*'DB_HOST', '\(.*\)'.*/\1/p" "$CONFIG")
+export MYSQL_PWD=$(sed -n "s/.*'DB_PASSWORD', '\(.*\)'.*/\1/p" "$CONFIG")
+
+# 1. The database. The dump creates all tables in the empty database.
+mysql -h "$DB_HOST" -u admin wordpress < "$DUMP"
+
+# 2. The images back to EFS, owned by the web server
+sudo tar -xzf "$FILES" -C /var/www/html/wp-content
+sudo chown -R apache:apache /var/www/html/wp-content/uploads
+
+# 3. WordPress stores its own address in the database, also in the image links.
+#    Swap the old server address for this one, otherwise visitors are sent there.
+#    The new address comes from the instance metadata (IMDSv2 needs a token).
+TOKEN=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+NEW="http://$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)"
+OLD=$(mysql -N -h "$DB_HOST" -u admin wordpress -e "SELECT option_value FROM wp_options WHERE option_name='siteurl';")
+
+mysql -h "$DB_HOST" -u admin wordpress -e "
+  UPDATE wp_options SET option_value='$NEW' WHERE option_name IN ('siteurl','home');
+  UPDATE wp_posts SET post_content=REPLACE(post_content,'$OLD','$NEW'), guid=REPLACE(guid,'$OLD','$NEW');"
+
+echo "Bytte $OLD mot $NEW"
+echo "Klart. Öppna $NEW"
 ```
