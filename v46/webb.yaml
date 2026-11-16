@@ -30,8 +30,10 @@ Parameters:
     Description: Latest Amazon Linux 2023, looked up when the stack is deployed
 
 Resources:
-  # The server role, same name as in v43. It may read the v43 bucket,
-  # write backups to backup/ and read the database secret. Nothing more.
+  # The server role, same name as in v43. The server gets short-lived keys from
+  # this role, so no access keys are stored on the server.
+  # It may read the v43 bucket, write backups to backup/ and read the database
+  # secret. Nothing more.
   WebRole:
     Type: AWS::IAM::Role
     Properties:
@@ -39,16 +41,20 @@ Resources:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
+          # Only EC2 servers may use this role
           - Effect: Allow
             Principal: {Service: ec2.amazonaws.com}
             Action: sts:AssumeRole
       Policies:
+        # Read the files in the v43 bucket
         - PolicyName: !Sub ${Prefix}-s3-read
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - {Effect: Allow, Action: s3:ListBucket, Resource: !Sub "arn:aws:s3:::${DataBucket}"}
               - {Effect: Allow, Action: s3:GetObject, Resource: !Sub "arn:aws:s3:::${DataBucket}/*"}
+        # Put backups in backup/, but not read or delete them.
+        # A hacked server can then not get at or remove old backups.
         - PolicyName: !Sub ${Prefix}-s3-backup
           PolicyDocument:
             Version: "2012-10-17"
@@ -90,47 +96,61 @@ Resources:
         Fn::Base64: !Sub
           - |
             #!/bin/bash
-            # Runs once at first boot. Log: /var/log/cloud-init-output.log
+            # Runs once, the first time the server starts.
+            # Everything it does ends up in /var/log/cloud-init-output.log
+            # Stop at the first error and print each command to the log.
             set -euxo pipefail
+
+            # Web server, PHP for WordPress, a database client and the EFS helper
             dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml mariadb105 amazon-efs-utils
 
-            # Mount EFS on wp-content, also after a reboot
+            # Mount EFS on wp-content, so images and themes live on the shared disk.
+            # The line in fstab mounts it again after a reboot. tls encrypts the traffic.
             mkdir -p /var/www/html/wp-content
             echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" >> /etc/fstab
+            # The EFS name can take a minute to work, so try up to ten times
             for i in 1 2 3 4 5 6 7 8 9 10; do mount -a && mountpoint -q /var/www/html/wp-content && break; sleep 15; done
             mountpoint -q /var/www/html/wp-content
 
-            # WordPress. -n keeps files that already are on EFS, if another server put them there
+            # Download WordPress and copy it to the web folder.
+            # -n keeps files that already are on EFS, if another server put them there.
             cd /tmp
             curl -sSLo latest.tar.gz https://wordpress.org/latest.tar.gz
             tar -xzf latest.tar.gz
             cp -rn /tmp/wordpress/. /var/www/html/
 
-            # wp-config.php from the secret, so nobody types the database password.
-            # set +x keeps the password out of the log.
+            # Write wp-config.php with the database details, so the WordPress
+            # installer can skip its database page. The password comes from
+            # Secrets Manager, so nobody has to type or copy it.
+            # set +x stops printing commands, so the password never reaches the log.
             set +x
             SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
             DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
             cd /var/www/html
             cp wp-config-sample.php wp-config.php
+            # Swap the placeholders in the sample file for the real values
             sed -i "s/database_name_here/wordpress/" wp-config.php
             sed -i "s/username_here/admin/" wp-config.php
             sed -i "s/password_here/$DBPASS/" wp-config.php
             sed -i "s/localhost/${DbHost}/" wp-config.php
             set -x
 
-            # Unique security keys for the login cookies
+            # Unique security keys for the login cookies, fetched from WordPress
             curl -sS https://api.wordpress.org/secret-key/1.1/salt/ > /tmp/salt.txt
             sed -i "/put your unique phrase here/d" wp-config.php
             sed -i "/DB_COLLATE/r /tmp/salt.txt" wp-config.php
             rm -f /tmp/salt.txt
 
+            # The web server must own the files. Then start PHP and the web server,
+            # and make them start again after a reboot.
             chown -R apache:apache /var/www/html
             systemctl enable --now php-fpm httpd
+          # Values filled in by !Sub above, read from the data stack
           - EfsId: !ImportValue {"Fn::Sub": "${Prefix}-efs-id"}
             DbHost: !ImportValue {"Fn::Sub": "${Prefix}-db-endpoint"}
             SecretArn: !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
 
+# Shown when the stack is done
 Outputs:
   PublicIp:
     Value: !GetAtt WebServer.PublicIp

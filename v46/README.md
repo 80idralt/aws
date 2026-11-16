@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-11-13
+**Datum:** 2026-11-16
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v46
 
@@ -16,7 +16,7 @@ Miljön består nu av tre filer. `natverk.yaml` bygger nätet från v44. `data.y
 
 Namnen är desamma som förut. novatrix-vpc heter fortfarande novatrix-vpc. Det är bara sättet att bygga som är nytt.
 
-Ett skript bygger allt med ett kommando och ett annat river allt. Webbservern hämtar själv databasens lösenord från Secrets Manager, så ingen människa behöver se det. Med ett annat prefix bygger samma filer en fristående kopia. Det har jag provat med `novatrix-test`.
+Ett skript bygger allt med ett kommando och ett annat river allt. Webbservern hämtar själv databasens lösenord från Secrets Manager, så ingen människa behöver se det. Med ett annat prefix bygger samma filer en fristående kopia. Det har jag provat med `novatrix-test`. Till sist visade jag att inlägg och bilder kan sparas i S3 och läsas in i en helt nybyggd miljö.
 
 ## Innehåll
 
@@ -334,6 +334,22 @@ d2513cb v45: bash-block och tydligare krav från v43
 101c904 v45: tydligare vad som behövs från v43
 ```
 
+När allt var klart såg historiken för v46 ut så här. Varje rad är ett steg som fungerade:
+
+```
+PS> git log --oneline -- v46
+9031e6c v46: backup och återställning, engelska kommentarer i skripten
+034d30e v46: oanvänd bild borttagen
+a5e3675 v46: README, övningsfilerna borttagna
+79a0cfa v46: städade templates, övningsfilerna borttagna
+6e4f4ec v46: städade templates och kommentarer
+6eeb30c v46: deploy- och riv-skript, bilder
+f1f3f3a v46: servern hämtar databaslösenordet själv
+5cacac2 v46: tagg Course på databasen
+5acb6b5 v46: nät, data och webb som CloudFormation
+2c85173 v46: nätverksstacken som CloudFormation
+```
+
 ### Varför det hjälper drift och samarbete
 
 I en klickad miljö finns bara dagens läge. Ingen vet vem som öppnade en port eller varför. Med koden i Git syns varje ändring som en rad i historiken, med datum, vem och ett meddelande om varför. Går något sönder efter en ändring kan jag se exakt vad som ändrades och gå tillbaka till versionen före.
@@ -372,7 +388,7 @@ Riv allt när du är klar:
 .\destroy.ps1
 ```
 
-Skriptet river i ordningen webb, data, nät. Databasen och EFS försvinner med datastacken. Vill du spara inlägg och bilder ska du ta en backup först. Bucketarna och key pairet finns kvar efter rivningen.
+Skriptet river i ordningen webb, data, nät. Databasen och EFS försvinner med datastacken. Vill du spara inlägg och bilder ska du köra `backup.sh` på servern först. Hur innehållet läses in igen står i avsnittet [Backup och återställning i en ny miljö](#backup-och-återställning-i-en-ny-miljö). Bucketarna och key pairet finns kvar efter rivningen.
 
 ## VG: Hela stacken som kod
 
@@ -777,8 +793,9 @@ Ja. Det är med flit:
 | Livscykelregeln på backup-bucketen | Den hör till bucketen och ska gälla hur många gånger miljön än rivs |
 | Key pairet | Den privata nyckeln ska bara finnas på min dator. Skapar en stack nyckeln måste den lämna ut den någonstans |
 | Grupperna och användarna från v43 | De beskriver människor och deras behörigheter, inte miljön. De ska inte försvinna när servern rivs |
+| Rollen `novatrix-backup-write` från v43 | Den används inte längre. I v46 skriver serverns egen roll backuperna. Den står kvar från v43 och kan tas bort |
 
-Allt annat, alltså nät, regler, roll, server, databas, lösenord och filsystem, kommer från templaterna. Ingenting är klickat i konsolen.
+Allt annat, alltså nät, regler, roll, server, databas, lösenord och filsystem, kommer från templaterna. Ingenting i stackarna är klickat i konsolen.
 
 Är det rätt att bucketarna ligger utanför? För data tycker jag det. Nackdelen är att någon som börjar i ett tomt konto först måste skapa bucketarna, till exempel med skriptet från v43. Ett alternativ hade varit en egen stack bara för bucketarna, med en inställning som gör att de står kvar när stacken rivs. Då hade allt funnits som kod. Det har jag inte gjort den här veckan.
 
@@ -886,12 +903,14 @@ Resources:
         - Key: Name
           Value: !Sub ${Prefix}-igw
 
+  # Connect the gateway to the VPC
   GatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref Vpc
       InternetGatewayId: !Ref InternetGateway
 
+  # The signpost for the public subnet: everything not local goes to the gateway
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -909,6 +928,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
+  # Put the signpost up in the public subnet only
   PublicSubnetRoute:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -924,6 +944,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${Prefix}-public-nacl
+
+  # Each rule has a number, lower numbers are checked first.
+  # Protocol 6 means TCP. Egress false is traffic in, true is traffic out.
 
   # In: web from everyone, SSH only from my computer, and the answers
   NaclInHttp:
@@ -1091,15 +1114,19 @@ Resources:
       AllocatedStorage: "20"
       StorageEncrypted: true
       MasterUsername: admin
+      # Fetched from the secret when the database is created, never written in a file
       MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}"
       DBName: wordpress
       DBSubnetGroupName: !Ref DbSubnetGroup
       VPCSecurityGroups:
         - !ImportValue {"Fn::Sub": "${Prefix}-db-sg-id"}
+      # No public address, only reachable inside the VPC
       PubliclyAccessible: false
       MultiAZ: false
+      # Free plan allows 1 day. The 14 days of history are kept in the S3 bucket.
       BackupRetentionPeriod: !Ref BackupDays
       DeleteAutomatedBackups: true
+      # Added later as the test change for version control
       Tags:
         - Key: Course
           Value: MOV25
@@ -1180,8 +1207,10 @@ Parameters:
     Description: Latest Amazon Linux 2023, looked up when the stack is deployed
 
 Resources:
-  # The server role, same name as in v43. It may read the v43 bucket,
-  # write backups to backup/ and read the database secret. Nothing more.
+  # The server role, same name as in v43. The server gets short-lived keys from
+  # this role, so no access keys are stored on the server.
+  # It may read the v43 bucket, write backups to backup/ and read the database
+  # secret. Nothing more.
   WebRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1189,16 +1218,20 @@ Resources:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
+          # Only EC2 servers may use this role
           - Effect: Allow
             Principal: {Service: ec2.amazonaws.com}
             Action: sts:AssumeRole
       Policies:
+        # Read the files in the v43 bucket
         - PolicyName: !Sub ${Prefix}-s3-read
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - {Effect: Allow, Action: s3:ListBucket, Resource: !Sub "arn:aws:s3:::${DataBucket}"}
               - {Effect: Allow, Action: s3:GetObject, Resource: !Sub "arn:aws:s3:::${DataBucket}/*"}
+        # Put backups in backup/, but not read or delete them.
+        # A hacked server can then not get at or remove old backups.
         - PolicyName: !Sub ${Prefix}-s3-backup
           PolicyDocument:
             Version: "2012-10-17"
@@ -1240,47 +1273,61 @@ Resources:
         Fn::Base64: !Sub
           - |
             #!/bin/bash
-            # Runs once at first boot. Log: /var/log/cloud-init-output.log
+            # Runs once, the first time the server starts.
+            # Everything it does ends up in /var/log/cloud-init-output.log
+            # Stop at the first error and print each command to the log.
             set -euxo pipefail
+
+            # Web server, PHP for WordPress, a database client and the EFS helper
             dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml mariadb105 amazon-efs-utils
 
-            # Mount EFS on wp-content, also after a reboot
+            # Mount EFS on wp-content, so images and themes live on the shared disk.
+            # The line in fstab mounts it again after a reboot. tls encrypts the traffic.
             mkdir -p /var/www/html/wp-content
             echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" >> /etc/fstab
+            # The EFS name can take a minute to work, so try up to ten times
             for i in 1 2 3 4 5 6 7 8 9 10; do mount -a && mountpoint -q /var/www/html/wp-content && break; sleep 15; done
             mountpoint -q /var/www/html/wp-content
 
-            # WordPress. -n keeps files that already are on EFS, if another server put them there
+            # Download WordPress and copy it to the web folder.
+            # -n keeps files that already are on EFS, if another server put them there.
             cd /tmp
             curl -sSLo latest.tar.gz https://wordpress.org/latest.tar.gz
             tar -xzf latest.tar.gz
             cp -rn /tmp/wordpress/. /var/www/html/
 
-            # wp-config.php from the secret, so nobody types the database password.
-            # set +x keeps the password out of the log.
+            # Write wp-config.php with the database details, so the WordPress
+            # installer can skip its database page. The password comes from
+            # Secrets Manager, so nobody has to type or copy it.
+            # set +x stops printing commands, so the password never reaches the log.
             set +x
             SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
             DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
             cd /var/www/html
             cp wp-config-sample.php wp-config.php
+            # Swap the placeholders in the sample file for the real values
             sed -i "s/database_name_here/wordpress/" wp-config.php
             sed -i "s/username_here/admin/" wp-config.php
             sed -i "s/password_here/$DBPASS/" wp-config.php
             sed -i "s/localhost/${DbHost}/" wp-config.php
             set -x
 
-            # Unique security keys for the login cookies
+            # Unique security keys for the login cookies, fetched from WordPress
             curl -sS https://api.wordpress.org/secret-key/1.1/salt/ > /tmp/salt.txt
             sed -i "/put your unique phrase here/d" wp-config.php
             sed -i "/DB_COLLATE/r /tmp/salt.txt" wp-config.php
             rm -f /tmp/salt.txt
 
+            # The web server must own the files. Then start PHP and the web server,
+            # and make them start again after a reboot.
             chown -R apache:apache /var/www/html
             systemctl enable --now php-fpm httpd
+          # Values filled in by !Sub above, read from the data stack
           - EfsId: !ImportValue {"Fn::Sub": "${Prefix}-efs-id"}
             DbHost: !ImportValue {"Fn::Sub": "${Prefix}-db-endpoint"}
             SecretArn: !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
 
+# Shown when the stack is done
 Outputs:
   PublicIp:
     Value: !GetAtt WebServer.PublicIp

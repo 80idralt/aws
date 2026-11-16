@@ -57,15 +57,19 @@ Resources:
       AllocatedStorage: "20"
       StorageEncrypted: true
       MasterUsername: admin
+      # Fetched from the secret when the database is created, never written in a file
       MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}"
       DBName: wordpress
       DBSubnetGroupName: !Ref DbSubnetGroup
       VPCSecurityGroups:
         - !ImportValue {"Fn::Sub": "${Prefix}-db-sg-id"}
+      # No public address, only reachable inside the VPC
       PubliclyAccessible: false
       MultiAZ: false
+      # Free plan allows 1 day. The 14 days of history are kept in the S3 bucket.
       BackupRetentionPeriod: !Ref BackupDays
       DeleteAutomatedBackups: true
+      # Added later as the test change for version control
       Tags:
         - Key: Course
           Value: MOV25

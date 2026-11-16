@@ -72,12 +72,14 @@ Resources:
         - Key: Name
           Value: !Sub ${Prefix}-igw
 
+  # Connect the gateway to the VPC
   GatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref Vpc
       InternetGatewayId: !Ref InternetGateway
 
+  # The signpost for the public subnet: everything not local goes to the gateway
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -95,6 +97,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
+  # Put the signpost up in the public subnet only
   PublicSubnetRoute:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -110,6 +113,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${Prefix}-public-nacl
+
+  # Each rule has a number, lower numbers are checked first.
+  # Protocol 6 means TCP. Egress false is traffic in, true is traffic out.
 
   # In: web from everyone, SSH only from my computer, and the answers
   NaclInHttp:
