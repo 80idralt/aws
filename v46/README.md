@@ -338,6 +338,7 @@ När allt var klart såg historiken för v46 ut så här. Varje rad är ett steg
 
 ```
 PS> git log --oneline -- v46
+b4ce5ad v46: fler kommentarer i templaterna, slutgranskning av README
 9031e6c v46: backup och återställning, engelska kommentarer i skripten
 034d30e v46: oanvänd bild borttagen
 a5e3675 v46: README, övningsfilerna borttagna
@@ -416,8 +417,10 @@ User data hämtar lösenordet och skriver `wp-config.php`. Det är den fil som W
 
 ```bash
 set +x
-SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
-DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} \
+  --secret-id ${SecretArn} --query SecretString --output text)
+DBPASS=$(echo "$SECRET" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
 cd /var/www/html
 cp wp-config-sample.php wp-config.php
 sed -i "s/database_name_here/wordpress/" wp-config.php
@@ -951,42 +954,119 @@ Resources:
   # In: web from everyone, SSH only from my computer, and the answers
   NaclInHttp:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 100, Protocol: 6, RuleAction: allow, Egress: false, CidrBlock: 0.0.0.0/0, PortRange: {From: 80, To: 80}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 100
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 0.0.0.0/0
+      PortRange: {From: 80, To: 80}
   NaclInHttps:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 110, Protocol: 6, RuleAction: allow, Egress: false, CidrBlock: 0.0.0.0/0, PortRange: {From: 443, To: 443}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 110
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 0.0.0.0/0
+      PortRange: {From: 443, To: 443}
   NaclInSsh:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 120, Protocol: 6, RuleAction: allow, Egress: false, CidrBlock: !Ref MyIp, PortRange: {From: 22, To: 22}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 120
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: !Ref MyIp
+      PortRange: {From: 22, To: 22}
   NaclInReturn:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 130, Protocol: 6, RuleAction: allow, Egress: false, CidrBlock: 0.0.0.0/0, PortRange: {From: 1024, To: 65535}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 130
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 0.0.0.0/0
+      PortRange: {From: 1024, To: 65535}
 
   # Out: web for updates, and the answers
   NaclOutHttp:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 100, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 0.0.0.0/0, PortRange: {From: 80, To: 80}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 100
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange: {From: 80, To: 80}
   NaclOutHttps:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 110, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 0.0.0.0/0, PortRange: {From: 443, To: 443}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 110
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange: {From: 443, To: 443}
   NaclOutReturn:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 120, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 0.0.0.0/0, PortRange: {From: 1024, To: 65535}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 120
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange: {From: 1024, To: 65535}
 
   # Out to the database (3306) and EFS (2049), only to the two private subnets,
   # never to the internet
   NaclOutDbA:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 140, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 10.0.2.0/24, PortRange: {From: 3306, To: 3306}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 140
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 10.0.2.0/24
+      PortRange: {From: 3306, To: 3306}
   NaclOutDbB:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 141, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 10.0.4.0/24, PortRange: {From: 3306, To: 3306}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 141
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 10.0.4.0/24
+      PortRange: {From: 3306, To: 3306}
   NaclOutEfsA:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 150, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 10.0.2.0/24, PortRange: {From: 2049, To: 2049}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 150
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 10.0.2.0/24
+      PortRange: {From: 2049, To: 2049}
   NaclOutEfsB:
     Type: AWS::EC2::NetworkAclEntry
-    Properties: {NetworkAclId: !Ref PublicNacl, RuleNumber: 151, Protocol: 6, RuleAction: allow, Egress: true, CidrBlock: 10.0.4.0/24, PortRange: {From: 2049, To: 2049}}
+    Properties:
+      NetworkAclId: !Ref PublicNacl
+      RuleNumber: 151
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 10.0.4.0/24
+      PortRange: {From: 2049, To: 2049}
 
   # Without this the NACL exists but guards nothing
   PublicSubnetNacl:
@@ -1015,7 +1095,10 @@ Resources:
       GroupDescription: MySQL only from the web server
       VpcId: !Ref Vpc
       SecurityGroupIngress:
-        - {IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref WebSecurityGroup}
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebSecurityGroup
 
   EfsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -1024,7 +1107,10 @@ Resources:
       GroupDescription: EFS only from the web server
       VpcId: !Ref Vpc
       SecurityGroupIngress:
-        - {IpProtocol: tcp, FromPort: 2049, ToPort: 2049, SourceSecurityGroupId: !Ref WebSecurityGroup}
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref WebSecurityGroup
 
 # Exports that the data and web stacks read with !ImportValue.
 # The prefix is part of every name, so a copy does not collide with the original.
@@ -1228,15 +1314,21 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - {Effect: Allow, Action: s3:ListBucket, Resource: !Sub "arn:aws:s3:::${DataBucket}"}
-              - {Effect: Allow, Action: s3:GetObject, Resource: !Sub "arn:aws:s3:::${DataBucket}/*"}
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${DataBucket}"
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${DataBucket}/*"
         # Put backups in backup/, but not read or delete them.
         # A hacked server can then not get at or remove old backups.
         - PolicyName: !Sub ${Prefix}-s3-backup
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - {Effect: Allow, Action: s3:PutObject, Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"}
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"
         # Only this one secret, so the server can write wp-config.php itself
         - PolicyName: !Sub ${Prefix}-db-secret-read
           PolicyDocument:
@@ -1279,14 +1371,19 @@ Resources:
             set -euxo pipefail
 
             # Web server, PHP for WordPress, a database client and the EFS helper
-            dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml mariadb105 amazon-efs-utils
+            dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml \
+              mariadb105 amazon-efs-utils
 
             # Mount EFS on wp-content, so images and themes live on the shared disk.
             # The line in fstab mounts it again after a reboot. tls encrypts the traffic.
             mkdir -p /var/www/html/wp-content
-            echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" >> /etc/fstab
+            echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" \
+              >> /etc/fstab
             # The EFS name can take a minute to work, so try up to ten times
-            for i in 1 2 3 4 5 6 7 8 9 10; do mount -a && mountpoint -q /var/www/html/wp-content && break; sleep 15; done
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              mount -a && mountpoint -q /var/www/html/wp-content && break
+              sleep 15
+            done
             mountpoint -q /var/www/html/wp-content
 
             # Download WordPress and copy it to the web folder.
@@ -1301,8 +1398,10 @@ Resources:
             # Secrets Manager, so nobody has to type or copy it.
             # set +x stops printing commands, so the password never reaches the log.
             set +x
-            SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
-            DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+            SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} \
+              --secret-id ${SecretArn} --query SecretString --output text)
+            DBPASS=$(echo "$SECRET" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
             cd /var/www/html
             cp wp-config-sample.php wp-config.php
             # Swap the placeholders in the sample file for the real values
@@ -1384,7 +1483,8 @@ aws cloudformation deploy --template-file data.yaml --stack-name "$Prefix-data" 
 # CAPABILITY_NAMED_IAM: we accept that this stack creates a role with its own name
 aws cloudformation deploy --template-file webb.yaml --stack-name "$Prefix-webb" `
     --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM `
-    --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
+    --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" `
+    "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
 
 $Url = aws cloudformation describe-stacks --stack-name "$Prefix-webb" `
     --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text
@@ -1484,13 +1584,19 @@ sudo chown -R apache:apache /var/www/html/wp-content/uploads
 # 3. WordPress stores its own address in the database, also in the image links.
 #    Swap the old server address for this one, otherwise visitors are sent there.
 #    The new address comes from the instance metadata (IMDSv2 needs a token).
-TOKEN=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
-NEW="http://$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)"
-OLD=$(mysql -N -h "$DB_HOST" -u admin wordpress -e "SELECT option_value FROM wp_options WHERE option_name='siteurl';")
+TOKEN=$(curl -sS -X PUT http://169.254.169.254/latest/api/token \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+IP=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/public-ipv4)
+NEW="http://$IP"
+OLD=$(mysql -N -h "$DB_HOST" -u admin wordpress \
+  -e "SELECT option_value FROM wp_options WHERE option_name='siteurl';")
 
 mysql -h "$DB_HOST" -u admin wordpress -e "
-  UPDATE wp_options SET option_value='$NEW' WHERE option_name IN ('siteurl','home');
-  UPDATE wp_posts SET post_content=REPLACE(post_content,'$OLD','$NEW'), guid=REPLACE(guid,'$OLD','$NEW');"
+  UPDATE wp_options SET option_value='$NEW'
+    WHERE option_name IN ('siteurl','home');
+  UPDATE wp_posts SET post_content=REPLACE(post_content,'$OLD','$NEW'),
+    guid=REPLACE(guid,'$OLD','$NEW');"
 
 echo "Bytte $OLD mot $NEW"
 echo "Klart. Öppna $NEW"

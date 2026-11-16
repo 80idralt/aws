@@ -40,7 +40,8 @@ aws cloudformation deploy --template-file data.yaml --stack-name "$Prefix-data" 
 # CAPABILITY_NAMED_IAM: we accept that this stack creates a role with its own name
 aws cloudformation deploy --template-file webb.yaml --stack-name "$Prefix-webb" `
     --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM `
-    --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
+    --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" `
+    "DataBucket=$DataBucket" "BackupBucket=$BackupBucket"
 
 $Url = aws cloudformation describe-stacks --stack-name "$Prefix-webb" `
     --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text

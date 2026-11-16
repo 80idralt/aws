@@ -51,15 +51,21 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - {Effect: Allow, Action: s3:ListBucket, Resource: !Sub "arn:aws:s3:::${DataBucket}"}
-              - {Effect: Allow, Action: s3:GetObject, Resource: !Sub "arn:aws:s3:::${DataBucket}/*"}
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${DataBucket}"
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${DataBucket}/*"
         # Put backups in backup/, but not read or delete them.
         # A hacked server can then not get at or remove old backups.
         - PolicyName: !Sub ${Prefix}-s3-backup
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - {Effect: Allow, Action: s3:PutObject, Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"}
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"
         # Only this one secret, so the server can write wp-config.php itself
         - PolicyName: !Sub ${Prefix}-db-secret-read
           PolicyDocument:
@@ -102,14 +108,19 @@ Resources:
             set -euxo pipefail
 
             # Web server, PHP for WordPress, a database client and the EFS helper
-            dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml mariadb105 amazon-efs-utils
+            dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml \
+              mariadb105 amazon-efs-utils
 
             # Mount EFS on wp-content, so images and themes live on the shared disk.
             # The line in fstab mounts it again after a reboot. tls encrypts the traffic.
             mkdir -p /var/www/html/wp-content
-            echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" >> /etc/fstab
+            echo "${EfsId}:/ /var/www/html/wp-content efs _netdev,noresvport,tls 0 0" \
+              >> /etc/fstab
             # The EFS name can take a minute to work, so try up to ten times
-            for i in 1 2 3 4 5 6 7 8 9 10; do mount -a && mountpoint -q /var/www/html/wp-content && break; sleep 15; done
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              mount -a && mountpoint -q /var/www/html/wp-content && break
+              sleep 15
+            done
             mountpoint -q /var/www/html/wp-content
 
             # Download WordPress and copy it to the web folder.
@@ -124,8 +135,10 @@ Resources:
             # Secrets Manager, so nobody has to type or copy it.
             # set +x stops printing commands, so the password never reaches the log.
             set +x
-            SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SecretArn} --query SecretString --output text)
-            DBPASS=$(echo "$SECRET" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+            SECRET=$(aws secretsmanager get-secret-value --region ${AWS::Region} \
+              --secret-id ${SecretArn} --query SecretString --output text)
+            DBPASS=$(echo "$SECRET" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
             cd /var/www/html
             cp wp-config-sample.php wp-config.php
             # Swap the placeholders in the sample file for the real values
