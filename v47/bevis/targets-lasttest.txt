@@ -1,0 +1,8 @@
+--------------------------------------------
+|           DescribeTargetHealth           |
++----------------------+-----------+-------+
+|  i-0b407b8c5ecd3d6e3 |  healthy  |  None |
+|  i-0b0b0600348440276 |  healthy  |  None |
+|  i-073ad4a51bd99cdb6 |  healthy  |  None |
+|  i-0f197049efb80fded |  healthy  |  None |
++----------------------+-----------+-------+

@@ -1,0 +1,22 @@
+natverk.yaml validerad
+data.yaml validerad
+webb.yaml validerad
+skala.yaml validerad
+
+Waiting for changeset to be created..
+Waiting for stack create/update to complete
+Successfully created/updated stack - novatrix-natverk
+
+Waiting for changeset to be created..
+Waiting for stack create/update to complete
+Successfully created/updated stack - novatrix-data
+
+Waiting for changeset to be created..
+Waiting for stack create/update to complete
+Successfully created/updated stack - novatrix-webb
+
+Waiting for changeset to be created..
+Waiting for stack create/update to complete
+Successfully created/updated stack - novatrix-skala
+
+Klart. Sidan: http://novatrix-alb-775542410.eu-north-1.elb.amazonaws.com (version 1)

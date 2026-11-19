@@ -1,0 +1,18 @@
+---------------------------------------------------------------------------------------------------------
+|                                       DescribeScalingActivities                                       |
++-----------------------------------+-------------+-----------------------------------------------------+
+|  2026-11-19T14:04:12.312000+00:00 |  Successful |  Terminating EC2 instance: i-073ad4a51bd99cdb6      |
+|  2026-11-19T13:58:54.127000+00:00 |  Successful |  Terminating EC2 instance: i-0b0b0600348440276      |
+|  2026-11-19T13:39:55.018000+00:00 |  Successful |  Launching a new EC2 instance: i-0b407b8c5ecd3d6e3  |
+|  2026-11-19T13:39:54.989000+00:00 |  Successful |  Launching a new EC2 instance: i-0b0b0600348440276  |
+|  2026-11-19T13:21:03.535000+00:00 |  Successful |  Launching a new EC2 instance: i-073ad4a51bd99cdb6  |
+|  2026-11-19T13:20:54.208000+00:00 |  Successful |  Terminating EC2 instance: i-077a7f3362f04c159      |
+|  2026-11-19T13:19:43.049000+00:00 |  Successful |  Launching a new EC2 instance: i-0f197049efb80fded  |
+|  2026-11-19T13:19:37.414000+00:00 |  Successful |  Terminating EC2 instance: i-04a5e7d4d076d1967      |
+|  2026-11-19T13:04:00.312000+00:00 |  Successful |  Launching a new EC2 instance: i-077a7f3362f04c159  |
+|  2026-11-19T13:03:58.540000+00:00 |  Successful |  Terminating EC2 instance: i-05d3459691bd6c3f2      |
+|  2026-11-19T13:01:59.964000+00:00 |  Successful |  Launching a new EC2 instance: i-04a5e7d4d076d1967  |
+|  2026-11-19T13:01:58.164000+00:00 |  Successful |  Terminating EC2 instance: i-0575b0e27b52d3442      |
+|  2026-11-19T12:49:55.225000+00:00 |  Successful |  Launching a new EC2 instance: i-05d3459691bd6c3f2  |
+|  2026-11-19T12:49:55.164000+00:00 |  Successful |  Launching a new EC2 instance: i-0575b0e27b52d3442  |
++-----------------------------------+-------------+-----------------------------------------------------+

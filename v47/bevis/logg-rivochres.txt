@@ -1,0 +1,9 @@
+--- server 16.16.187.8 ---
++ mkdir /var/www/html/wp-content/novatrix-first
++ cp -rn /tmp/wp-content-start/. /var/www/html/wp-content/
++ mv /var/www/html/wp-content/novatrix-salts.tmp /var/www/html/wp-content/novatrix-salts.php
+Success: WordPress installed successfully.
++ /opt/aws/bin/cfn-signal -e 0 --region eu-north-1 --stack novatrix-skala --resource WebGroup
+--- server 13.60.12.183 ---
++ mkdir /var/www/html/wp-content/novatrix-first
++ /opt/aws/bin/cfn-signal -e 0 --region eu-north-1 --stack novatrix-skala --resource WebGroup
