@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Novatrix web (v43 as code): the server role and its instance profile.
+  The servers themselves are started by the Auto Scaling group in
+  novatrix-skala. Needs novatrix-data. Stack name: novatrix-webb.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: novatrix
+    AllowedPattern: "[a-z][a-z0-9-]*"
+    Description: Same prefix as the network and data stacks
+  DataBucket:
+    Type: String
+    Description: The bucket from v43 that the server may read, e.g. novatrix-data-<name>-01
+  BackupBucket:
+    Type: String
+    Description: The backup bucket from v45, e.g. novatrix-backup-<name>-01
+
+Resources:
+  # It may read the v43 bucket, write backups to backup/ and read the two
+  # secrets. Nothing more.
+  # It may read the v43 bucket, write backups to backup/ and read the database
+  # secret. Nothing more.
+  WebRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Prefix}-ec2-s3-read
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Only EC2 servers may use this role
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        # Read the files in the v43 bucket
+        - PolicyName: !Sub ${Prefix}-s3-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${DataBucket}"
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${DataBucket}/*"
+        # Put backups in backup/, but not read or delete them.
+        # A hacked server can then not get at or remove old backups.
+        - PolicyName: !Sub ${Prefix}-s3-backup
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${BackupBucket}/backup/*"
+        # Only the two secrets: the database password for wp-config.php and
+        # the WordPress admin password for the automatic install. Nothing more.
+        - PolicyName: !Sub ${Prefix}-db-secret-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
+                  - !ImportValue {"Fn::Sub": "${Prefix}-wp-admin-secret-arn"}
+
+  # The holder that EC2 uses to get the role, same name as the role
+  WebInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${Prefix}-ec2-s3-read
+      Roles: [!Ref WebRole]
+
+# Shown when the stack is done
+Outputs:
+  InstanceProfileName:
+    Value: !Ref WebInstanceProfile
+    Export: {Name: !Sub "${Prefix}-web-profile-name"}
