@@ -30,9 +30,10 @@ Jag har testat skalning åt båda hållen, att en server dör, en utrullning och
 8. [VG: Skalningen som kod](#vg-skalningen-som-kod)
 9. [VG: Bevis från kodversionen](#vg-bevis-från-kodversionen)
 10. [VG: Så svarar lösningen på last och fel](#vg-så-svarar-lösningen-på-last-och-fel)
-11. [VG: Varför jag har valt som jag gjort](#vg-varför-jag-har-valt-som-jag-gjort)
-12. [Så återskapar du miljön](#så-återskapar-du-miljön)
-13. [Filerna i repot](#filerna-i-repot)
+11. [Det viktigaste jag lärde mig](#det-viktigaste-jag-lärde-mig)
+12. [VG: Varför jag har valt som jag gjort](#vg-varför-jag-har-valt-som-jag-gjort)
+13. [Så återskapar du miljön](#så-återskapar-du-miljön)
+14. [Filerna i repot](#filerna-i-repot)
 
 ## Arkitektur
 
@@ -717,6 +718,36 @@ Här finns den felpunkt som är kvar. Databasen är Single-AZ och finns i en zon
 Går databasen ner svarar `wp-login.php` med fel på alla servrar. Alla blir unhealthy samtidigt. När alla mål är unhealthy skickar lastbalanseraren trafik till alla ändå. Besökarna får ett databasfel från WordPress. Gruppen börjar dessutom byta ut servrar som egentligen är friska. Det hjälper inte, eftersom felet sitter i databasen.
 
 Lösningen är Multi-AZ. Då finns en reserv i den andra zonen som tar över av sig själv. Den kostar 14,81 USD till per månad, alltså dubbelt för databasen. För en liten sajt valde jag bort det i v45. Det beslutet står jag fast vid så länge Novatrix klarar ett avbrott på några minuter. Är sajten viktig för försäljningen är Multi-AZ det första jag lägger till.
+
+## Det viktigaste jag lärde mig
+
+### Servrarna får inte ha något eget
+
+Gruppen tar bort servrar hela tiden, vid inskalning, vid failover och vid utrullning. Därför får inget viktigt ligga bara på en server. Inläggen ligger i databasen, bilderna på EFS och lösenorden i Secrets Manager. När jag rev en server försvann ingenting.
+
+### Alla servrar måste ha samma salts
+
+Saltsen signerar inloggningen, ungefär som en stämpel på handen. Lastbalanseraren skickar mig till olika servrar vid varje klick. Har servrarna olika salts känner nästa server inte igen min stämpel och jag blir utloggad. Därför ligger saltsen i en fil på EFS. Jag laddade om wp-admin åtta gånger och var inloggad hela tiden.
+
+### Bara en server får göra det som görs en gång
+
+Det här lärde jag mig den hårda vägen. De två första servrarna startade samtidigt och kopierade samma filer till EFS. De krockade och båda stannade. Nu tar den första servern ett lås, en mapp på EFS som bara kan skapas en gång. Den servern gör jobbet och den andra väntar.
+
+### Lastbalanseraren skickar bara till friska servrar
+
+Lastbalanseraren frågar varje server efter wp-login.php var 15:e sekund. Den sidan svarar bara när både PHP och databasen fungerar. Svarar en server fel två gånger i rad får den inga besökare. När jag stängde av en server blev det några fel i 25 sekunder. Sedan svarade allt igen från den andra servern.
+
+### Det går snabbt att skala ut men långsamt att skala in
+
+Det tog ungefär 5 minuter innan gruppen startade nya servrar. Det tog 16 minuter innan den började ta bort dem igen. Det är med flit. Att starta servrar för sent ger långsamma sidor. Att ta bort dem för tidigt kan betyda att de behövs igen direkt.
+
+### En AMI blir gammal men user data gör det inte
+
+En AMI är som ett foto av en server. Den minns databasen och EFS från den dag den togs. Efter en riv och res pekade den på saker som inte fanns längre. User data hämtar det som gäller just nu varje gång en server startar. Därför fungerade min riv och res utan att jag rörde något.
+
+### Varför CPU och 50 %
+
+Varje sida i WordPress kör PHP, så CPU stiger när besökarna blir fler. Målet 50 % ger marginal. Om en zon försvinner får servern som är kvar dubbelt så mycket att göra. Den hamnar då runt 100 % och klarar sig tills en ny server är igång.
 
 ## VG: Varför jag har valt som jag gjort
 
