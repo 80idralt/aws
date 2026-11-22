@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-11-20
+**Datum:** 2026-11-22
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v47
 
@@ -138,7 +138,8 @@ WordPress sparar sin egen adress i databasen, i `siteurl` och `home`. Där stod 
 
 ```bash
 mysql -h "$DB_HOST" -u admin -p -e \
-  "UPDATE wordpress.wp_options SET option_value='http://$ALB_DNS' WHERE option_name IN ('siteurl','home');"
+  "UPDATE wordpress.wp_options SET option_value='http://$ALB_DNS'
+   WHERE option_name IN ('siteurl','home');"
 ```
 
 Första gången stannade skriptet med `$'\r': command not found`. Filen hade Windows radslut. Bash på servern läste det osynliga tecknet som en del av kommandot. Jag tog bort tecknen på servern med `sed -i 's/\r$//' siteurl.sh` och bytte till LF i VS Code. Sedan gick det.
@@ -148,7 +149,10 @@ Första gången stannade skriptet med `$'\r': command not found`. Filen hade Win
 `novatrix-web` skapades av webbstacken. Därför tog jag bort den i `webb.yaml` och inte med Terminate. Change setet visade bara en ändring:
 
 ```
-PS> aws cloudformation deploy --template-file webb.yaml --stack-name novatrix-webb --capabilities CAPABILITY_NAMED_IAM --parameter-overrides DataBucket=novatrix-data-80idralt-01 BackupBucket=novatrix-backup-80idralt-01 --no-execute-changeset
+PS> aws cloudformation deploy --template-file webb.yaml --stack-name novatrix-webb `
+>>   --capabilities CAPABILITY_NAMED_IAM --no-execute-changeset `
+>>   --parameter-overrides DataBucket=novatrix-data-80idralt-01 `
+>>   BackupBucket=novatrix-backup-80idralt-01
 ...
 |  Remove  |  WebServer  |
 ```
@@ -235,15 +239,21 @@ Jag avslutade en server med Terminate medan en loop frågade sajten var femte se
 
 ![Activity efter failover](images/19-activity-failover.png)
 
-Hela förloppet som text, tiderna i UTC:
+Hela förloppet 18 november som text, tiderna i UTC:
 
 ```
-2026-11-18T18:01:40  At 2026-11-18T18:01:39Z an instance was launched in response to an unhealthy instance needing to be replaced.
-2026-11-18T18:01:38  At 2026-11-18T18:01:38Z an instance was taken out of service in response to an EC2 health check indicating it has been terminated or stopped.
-2026-11-18T17:43:32  ...AlarmLow... in state ALARM triggered policy cpu-50 changing the desired capacity from 3 to 2.
-2026-11-18T17:37:45  ...AlarmLow... in state ALARM triggered policy cpu-50 changing the desired capacity from 4 to 3.
-2026-11-18T17:19:39  ...AlarmHigh... in state ALARM triggered policy cpu-50 changing the desired capacity from 2 to 4.
-2026-11-18T16:40:38  At 2026-11-18T16:37:36Z a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.
+18:01:40  At 18:01:39Z an instance was launched in response to an unhealthy instance
+          needing to be replaced.
+18:01:38  At 18:01:38Z an instance was taken out of service in response to an EC2
+          health check indicating it has been terminated or stopped.
+17:43:32  ...AlarmLow... in state ALARM triggered policy cpu-50 changing the desired
+          capacity from 3 to 2.
+17:37:45  ...AlarmLow... in state ALARM triggered policy cpu-50 changing the desired
+          capacity from 4 to 3.
+17:19:39  ...AlarmHigh... in state ALARM triggered policy cpu-50 changing the desired
+          capacity from 2 to 4.
+16:40:38  At 16:37:36Z a user request created an AutoScalingGroup changing the desired
+          capacity from 0 to 2.
 ```
 
 Hela filen ligger i [bevis/activity.txt](bevis/activity.txt).
@@ -520,9 +530,12 @@ CPU-snittet för gruppen minut för minut, ur CloudWatch, svensk tid:
 Orsakerna ur Activity:
 
 ```
-14:04:12  ...AlarmLow... in state ALARM triggered policy ... changing the desired capacity from 3 to 2.
-13:58:54  ...AlarmLow... in state ALARM triggered policy ... changing the desired capacity from 4 to 3.
-13:39:55  ...AlarmHigh... in state ALARM triggered policy ... changing the desired capacity from 2 to 4.
+14:04:12  ...AlarmLow... in state ALARM triggered policy ... changing the desired
+          capacity from 3 to 2.
+13:58:54  ...AlarmLow... in state ALARM triggered policy ... changing the desired
+          capacity from 4 to 3.
+13:39:55  ...AlarmHigh... in state ALARM triggered policy ... changing the desired
+          capacity from 2 to 4.
 ```
 
 ### Failover
@@ -552,7 +565,8 @@ PS> aws ec2 terminate-instances --instance-ids i-0f197049efb80fded
 
 ```
 14:07:43  an instance was launched in response to an unhealthy instance needing to be replaced.
-14:07:41  an instance was taken out of service in response to an EC2 health check indicating it has been terminated or stopped.
+14:07:41  an instance was taken out of service in response to an EC2 health check
+          indicating it has been terminated or stopped.
 ```
 
 ```
@@ -573,9 +587,12 @@ Bilden ligger på EFS. Den syntes varje gång jag laddade om, oavsett vilken ser
 I Activity från första deploy såg jag något som inte stämde:
 
 ```
-13:03:58  an instance was taken out of service in response to an ELB system health check failure.
-13:01:58  an instance was taken out of service in response to an ELB system health check failure.
-12:49:55  a user request update of AutoScalingGroup ... changing the desired capacity from 0 to 2.
+13:03:58  an instance was taken out of service in response to an ELB system health
+          check failure.
+13:01:58  an instance was taken out of service in response to an ELB system health
+          check failure.
+12:49:55  a user request update of AutoScalingGroup ... changing the desired capacity
+          from 0 to 2.
 ```
 
 De två första servrarna blev aldrig friska. Efter 12 minuter byttes de ut. Ersättarna fungerade. Stacken blev ändå klar, eftersom ersättarna hann skicka sina signaler inom 20 minuter.
@@ -583,8 +600,10 @@ De två första servrarna blev aldrig friska. Efter 12 minuter byttes de ut. Ers
 Servrarna var borta, men AWS sparar konsolutskriften en stund. Där stod det:
 
 ```
-cloud-init[1951]: cp: cannot create regular file '/var/www/html/./wp-content/themes/twentytwentyfive/patterns/page-cv-bio.php': File exists
-cloud-init[1951]: cp: cannot create directory '/var/www/html/./wp-content/themes/twentytwentyfour/assets/fonts/jost': File exists
+cloud-init[1951]: cp: cannot create regular file
+  '/var/www/html/./wp-content/themes/twentytwentyfive/patterns/page-cv-bio.php': File exists
+cloud-init[1951]: cp: cannot create directory
+  '/var/www/html/./wp-content/themes/twentytwentyfour/assets/fonts/jost': File exists
 ...
 cloud-init[1951]: Failed to run module scripts-user
 ```
@@ -611,8 +630,10 @@ Jag rev allt med `destroy.ps1` och byggde upp igen med `deploy.ps1`. Det blev et
 Activity hade nu bara två rader:
 
 ```
-15:20:32  ...changing the desired capacity from 0 to 2. ... an instance was started ... increasing the capacity from 0 to 2.
-15:20:32  ...changing the desired capacity from 0 to 2. ... an instance was started ... increasing the capacity from 0 to 2.
+15:20:32  ...changing the desired capacity from 0 to 2. ... an instance was started
+          ... increasing the capacity from 0 to 2.
+15:20:32  ...changing the desired capacity from 0 to 2. ... an instance was started
+          ... increasing the capacity from 0 to 2.
 ```
 
 Inga fel. Servrarna startade 15:20:30 och stacken var klar 15:22:23. Båda servrarna installerade sig och signalerade på under två minuter. Med felet tog samma steg över 14 minuter.
@@ -804,8 +825,11 @@ Det tar ungefär 20 minuter, mest för databasen. Skriptet väntar tills båda s
 Lösenordet till WordPress-admin hämtas så här. Användarnamnet är `novatrix-admin`.
 
 ```powershell
-$Arn = aws cloudformation list-exports --query "Exports[?Name=='novatrix-wp-admin-secret-arn'].Value" --output text
-(aws secretsmanager get-secret-value --secret-id $Arn --query SecretString --output text | ConvertFrom-Json).password
+$Q = "Exports[?Name=='novatrix-wp-admin-secret-arn'].Value"
+$Arn = aws cloudformation list-exports --query $Q --output text
+$Json = aws secretsmanager get-secret-value --secret-id $Arn `
+    --query SecretString --output text
+($Json | ConvertFrom-Json).password
 ```
 
 Rulla ut en ny version:
