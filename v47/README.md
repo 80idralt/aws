@@ -178,9 +178,9 @@ Beräkningen är gjord i AWS Pricing Calculator: [länk](https://calculator.aws/
 | Tillägg: 2 servrar till och deras 2 adresser | 28,61 |
 | **Utskalat, 4 servrar** | **103,48** |
 
-![Kalkylen med tre grupper](images/30-kostnadskalkyl-grupper.png)
+Bilden nedan visar kalkylatorn. Överst står 133,10, men den summan gäller aldrig. Kalkylatorn lägger ihop alla tre grupperna, även jämförelsen med Multi-AZ som inte ingår: 74,87 + 28,61 + 29,62 = 133,10. Normal last är 74,87 och utskalat är 103,48, som i tabellen ovan.
 
-Kalkylen har tre grupper. Den tredje är en jämförelse och ingår inte i summorna. Totalen överst i kalkylatorn, 133,10, är alla tre grupperna ihop.
+![Kalkylen med tre grupper](images/30-kostnadskalkyl-grupper.png)
 
 ### Antaganden
 
