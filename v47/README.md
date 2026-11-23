@@ -121,17 +121,11 @@ Subnätet står med flit tomt i launch templaten. Står det ett subnät där kan
 
 Gruppens val står i tabellen under Delmoment 2. Den startade två servrar, en i varje zon. Efter några minuter var båda healthy.
 
-![Gruppen med två servrar healthy](images/07-asg-2-healthy.png)
-
 Jag gjorde ett misstag när jag skapade gruppen. Jag lät "No scaling policies" stå kvar. Gruppen höll då två servrar men skalade aldrig. Det märkte jag först i lasttestet, när CPU låg på 100 % utan att något hände. `describe-policies` gav ett tomt svar. Jag lade till regeln i efterhand under Automatic scaling, med namnet `cpu-50` och warmup 300.
 
 ## Delmoment 4: Lastbalanseraren
 
 Target groupen och lastbalanseraren står i tabellen under Delmoment 2. Inga mål registrerades för hand. Gruppen lägger själv in sina servrar i target groupen.
-
-![Target groupen](images/04-target-group.png)
-
-![Lastbalanseraren Active](images/12-alb-active.png)
 
 ### WordPress adress
 
@@ -218,13 +212,9 @@ Arkitekturen är dokumenterad med skissen under [Arkitektur](#arkitektur). Den h
 
 Jag körde `lasttest.sh` på båda servrarna. Med last på bara en av två hamnar snittet runt 50 %, precis på målet. Då händer oftast ingenting.
 
-![CPU på 100 %](images/13-cpu-100.png)
-
 Gruppen gick från 2 till 4 servrar på en gång. Target tracking räknade ut att 100 % mot målet 50 % kräver dubbelt så många servrar.
 
 ![Activity, 2 till 4](images/14-activity-2-till-4.png)
-
-![Fyra servrar healthy](images/15-targets-4-healthy.png)
 
 När lasten var stoppad tog gruppen bort en server i taget.
 
@@ -414,8 +404,6 @@ Successfully created/updated stack - novatrix-skala
 Klart. Sidan: http://novatrix-alb-1143307936.eu-north-1.elb.amazonaws.com (version 1)
 ```
 
-![Fyra stackar](images/22-fyra-stackar.png)
-
 Sidan svarade direkt med sajtnamnet Novatrix. Ingen installationsguide.
 
 ![Sidan direkt efter deploy](images/23-sidan-utan-installationsguide.png)
@@ -498,8 +486,6 @@ Activity visar att servrarna byttes en i taget:
 ```
 
 ![Launch templaten med två versioner](images/25-launch-template-versioner.png)
-
-![Activity under utrullningen](images/26-activity-utrullning.png)
 
 ### Lasttest
 
@@ -624,11 +610,7 @@ cp -r /tmp/wordpress/. /var/www/html/
 
 ### Riv och res
 
-Jag rev allt med `destroy.ps1` och byggde upp igen med `deploy.ps1`. Det blev ett nytt EFS, en ny databas, nya hemligheter och ett nytt namn på lastbalanseraren.
-
-![Fyra stackar efter riv och res](images/28-fyra-stackar-efter-riv-och-res.png)
-
-Activity hade nu bara två rader:
+Jag rev allt med `destroy.ps1` och byggde upp igen med `deploy.ps1`. Det blev ett nytt EFS, en ny databas, nya hemligheter och ett nytt namn på lastbalanseraren. Activity hade nu bara två rader:
 
 ```
 15:20:32  ...changing the desired capacity from 0 to 2. ... an instance was started
@@ -744,10 +726,6 @@ Det tog ungefär 5 minuter innan gruppen startade nya servrar. Det tog 16 minute
 ### En AMI blir gammal men user data gör det inte
 
 En AMI är som ett foto av en server. Den minns databasen och EFS från den dag den togs. Efter en riv och res pekade den på saker som inte fanns längre. User data hämtar det som gäller just nu varje gång en server startar. Därför fungerade min riv och res utan att jag rörde något.
-
-### Varför CPU och 50 %
-
-Varje sida i WordPress kör PHP, så CPU stiger när besökarna blir fler. Målet 50 % ger marginal. Om en zon försvinner får servern som är kvar dubbelt så mycket att göra. Den hamnar då runt 100 % och klarar sig tills en ny server är igång.
 
 ## VG: Varför jag har valt som jag gjort
 
