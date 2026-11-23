@@ -4,7 +4,7 @@
 
 **Kurs:** AWS, MOV25
 
-**Datum:** 2026-11-22
+**Datum:** 2026-11-23
 
 **Repo:** https://github.com/80idralt/aws/tree/master/v47
 
@@ -52,18 +52,18 @@ Servrarna släpper bara in port 80 från lastbalanserarens security group. Att s
 
 ## Delmoment 1: Repo
 
-Allt ligger i mappen `v47`:
+Allt ligger i mappen `v47`. Koden ligger samlad i `scripts/`:
 
 | Fil | Vad den gör |
 |---|---|
-| `natverk.yaml` | Nätet från v46 med ett andra publikt subnät och en security group för lastbalanseraren |
-| `data.yaml` | Databasen, EFS och två hemligheter i Secrets Manager |
-| `webb.yaml` | Bara rollen och instance profilen. Servern är borta härifrån |
-| `skala.yaml` | Lastbalanseraren, target groupen, launch templaten, gruppen och skalningsregeln (VG) |
-| `deploy.ps1` | Bygger alla fyra stackarna i rätt ordning |
-| `destroy.ps1` | River dem i omvänd ordning |
-| `siteurl.sh` | Pekar om WordPress till lastbalanseraren. Användes bara i konsolversionen |
-| `lasttest.sh` | Håller båda kärnorna på en server sysselsatta i 15 minuter |
+| `scripts/natverk.yaml` | Nätet från v46 med ett andra publikt subnät och en security group för lastbalanseraren |
+| `scripts/data.yaml` | Databasen, EFS och två hemligheter i Secrets Manager |
+| `scripts/webb.yaml` | Bara rollen och instance profilen. Servern är borta härifrån |
+| `scripts/skala.yaml` | Lastbalanseraren, target groupen, launch templaten, gruppen och skalningsregeln (VG) |
+| `scripts/deploy.ps1` | Bygger alla fyra stackarna i rätt ordning |
+| `scripts/destroy.ps1` | River dem i omvänd ordning |
+| `scripts/siteurl.sh` | Pekar om WordPress till lastbalanseraren. Användes bara i konsolversionen |
+| `scripts/lasttest.sh` | Håller båda kärnorna på en server sysselsatta i 15 minuter |
 | `kalkylbladVG.pdf` | Kostnadsberäkningen från AWS Pricing Calculator |
 | `bevis/` | Utskrifter från testerna som text |
 | `images/` | Skissen och skärmbilder |
@@ -847,7 +847,7 @@ Bygg allt:
 
 ```powershell
 aws login
-cd v47
+cd v47/scripts
 .\deploy.ps1
 ```
 
@@ -883,12 +883,12 @@ Skriptet river skala, webb, data och nät i den ordningen. Databasen och EFS fö
 
 | Fil | Innehåll |
 |---|---|
-| [natverk.yaml](https://github.com/80idralt/aws/blob/master/v47/natverk.yaml) | VPC, två publika och två privata subnät, NACL, fyra security groups och nio exporter |
-| [data.yaml](https://github.com/80idralt/aws/blob/master/v47/data.yaml) | Databasen, EFS, lösenordet till databasen och lösenordet till WordPress-admin |
-| [webb.yaml](https://github.com/80idralt/aws/blob/master/v47/webb.yaml) | Rollen och instance profilen |
-| [skala.yaml](https://github.com/80idralt/aws/blob/master/v47/skala.yaml) | Lastbalanseraren, target groupen, listenern, launch templaten med user data, gruppen och skalningsregeln |
-| [deploy.ps1](https://github.com/80idralt/aws/blob/master/v47/deploy.ps1) | Validerar och bygger de fyra stackarna |
-| [destroy.ps1](https://github.com/80idralt/aws/blob/master/v47/destroy.ps1) | River stackarna i omvänd ordning |
-| [siteurl.sh](https://github.com/80idralt/aws/blob/master/v47/siteurl.sh) | Pekar om WordPress till lastbalanseraren, bara konsolversionen |
-| [lasttest.sh](https://github.com/80idralt/aws/blob/master/v47/lasttest.sh) | Lasttestet |
+| [natverk.yaml](https://github.com/80idralt/aws/blob/master/v47/scripts/natverk.yaml) | VPC, två publika och två privata subnät, NACL, fyra security groups och nio exporter |
+| [data.yaml](https://github.com/80idralt/aws/blob/master/v47/scripts/data.yaml) | Databasen, EFS, lösenordet till databasen och lösenordet till WordPress-admin |
+| [webb.yaml](https://github.com/80idralt/aws/blob/master/v47/scripts/webb.yaml) | Rollen och instance profilen |
+| [skala.yaml](https://github.com/80idralt/aws/blob/master/v47/scripts/skala.yaml) | Lastbalanseraren, target groupen, listenern, launch templaten med user data, gruppen och skalningsregeln |
+| [deploy.ps1](https://github.com/80idralt/aws/blob/master/v47/scripts/deploy.ps1) | Validerar och bygger de fyra stackarna |
+| [destroy.ps1](https://github.com/80idralt/aws/blob/master/v47/scripts/destroy.ps1) | River stackarna i omvänd ordning |
+| [siteurl.sh](https://github.com/80idralt/aws/blob/master/v47/scripts/siteurl.sh) | Pekar om WordPress till lastbalanseraren, bara konsolversionen |
+| [lasttest.sh](https://github.com/80idralt/aws/blob/master/v47/scripts/lasttest.sh) | Lasttestet |
 | [bevis/](https://github.com/80idralt/aws/tree/master/v47/bevis) | Alla utskrifter som text |
