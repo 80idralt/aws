@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Novatrix scaling (v47 VG): the load balancer, target group and listener,
+  a launch template whose user data sets up WordPress and the CloudWatch agent
+  on a clean Amazon Linux, the Auto Scaling group and the scaling policy.
+  Needs novatrix-natverk, novatrix-data and novatrix-webb. Stack name:
+  novatrix-skala.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: novatrix
+    AllowedPattern: "[a-z][a-z0-9-]*"
+    Description: Same prefix as the other three stacks
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair for SSH, used for the load test and for troubleshooting
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+  # The newest Amazon Linux 2023, looked up by AWS at deploy time.
+  # No hand-made AMI, so nothing goes stale after a rebuild.
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  # Raise this to roll out a new version. It changes the user data, which gives
+  # a new launch template version, and the group replaces its servers one by one.
+  AppVersion:
+    Type: String
+    Default: "1"
+
+Resources:
+  # The visitors' only way in, with one node in each public subnet
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Prefix}-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - !ImportValue {"Fn::Sub": "${Prefix}-public-subnet-id"}
+        - !ImportValue {"Fn::Sub": "${Prefix}-public-b-subnet-id"}
+      SecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-alb-sg-id"}
+
+  # The servers that get traffic. wp-login.php answers 200 only when PHP,
+  # wp-config.php and the database all work, so it tests what visitors need.
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Prefix}-web-tg
+      VpcId: !ImportValue {"Fn::Sub": "${Prefix}-vpc-id"}
+      Protocol: HTTP
+      Port: 80
+      HealthCheckPath: /wp-login.php
+      Matcher: {HttpCode: "200"}
+      # Check every 15 seconds, two answers in a row decide.
+      # A new server gets traffic after 30 seconds, a dead one is out after 30.
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        # A WordPress page takes well under a second, so 30 seconds is enough
+        # to finish ongoing requests. The default 300 slows every replacement.
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+
+  # Port 80, one rule: everything to the target group
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - {Type: forward, TargetGroupArn: !Ref TargetGroup}
+
+  # The blueprint for every server the group starts. No subnet here,
+  # the group picks one per zone so the servers spread over both.
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${Prefix}-web-lt
+      # Shown per version in the console, so the history is readable
+      VersionDescription: !Sub "AppVersion ${AppVersion}"
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        # The role from the web stack, same as novatrix-web had
+        IamInstanceProfile:
+          Name: !ImportValue {"Fn::Sub": "${Prefix}-web-profile-name"}
+        SecurityGroupIds:
+          - !ImportValue {"Fn::Sub": "${Prefix}-web-sg-id"}
+        # CPU every minute instead of every five, so the group reacts in minutes
+        Monitoring: {Enabled: true}
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - {Key: Name, Value: !Sub "${Prefix}-web"}
+              - {Key: Project, Value: !Ref Prefix}
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              # Runs once, the first time a server starts. Every server in the group
+              # runs the same script, so they end up identical without anyone logging in.
+              # Everything it does ends up in /var/log/cloud-init-output.log
+              set -euxo pipefail
+
+              # The CloudWatch agent: memory, disk and Apache's logs to CloudWatch.
+              # It reads its settings from Parameter Store, the name comes from the
+              # web stack. Started early, so we get metrics even if a later step fails.
+              dnf install -y amazon-cloudwatch-agent
+              /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+                -a fetch-config -m ec2 -s -c ssm:${AgentConfigName}
+
+              # Web server, PHP, database client, EFS helper and cfn-signal
+              dnf install -y httpd php php-mysqlnd php-gd php-mbstring php-xml \
+                mariadb105 amazon-efs-utils aws-cfn-bootstrap
+
+              # WP-CLI installs WordPress from the command line, so nobody has to
+              # click through the web installer after a rebuild
+              curl -sSLo /usr/local/bin/wp \
+                https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+              chmod +x /usr/local/bin/wp
+
+              # Mount EFS on wp-content, same as v46. Images, themes and plugins
+              # live on the shared disk, so every server sees the same files.
+              WPC=/var/www/html/wp-content
+              mkdir -p $WPC
+              echo "${EfsId}:/ $WPC efs _netdev,noresvport,tls 0 0" >> /etc/fstab
+              for i in 1 2 3 4 5 6 7 8 9 10; do
+                mount -a && mountpoint -q $WPC && break
+                sleep 15
+              done
+              mountpoint -q $WPC
+
+              # Download WordPress. The core goes to the local disk of every server.
+              # wp-content is set aside and copied to EFS only by the first server
+              # below. Two servers copying to an empty EFS at the same second
+              # collide on the same files ("File exists"), and the script stops.
+              cd /tmp
+              curl -sSLo latest.tar.gz https://wordpress.org/latest.tar.gz
+              tar -xzf latest.tar.gz
+              mv /tmp/wordpress/wp-content /tmp/wp-content-start
+              cp -r /tmp/wordpress/. /var/www/html/
+
+              # wp-config.php with the database details from Secrets Manager, same as v46.
+              # set +x keeps the password out of the log.
+              set +x
+              DBPASS=$(aws secretsmanager get-secret-value --region ${AWS::Region} \
+                --secret-id ${DbSecretArn} --query SecretString --output text \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+              cd /var/www/html
+              cp wp-config-sample.php wp-config.php
+              sed -i "s/database_name_here/wordpress/" wp-config.php
+              sed -i "s/username_here/admin/" wp-config.php
+              sed -i "s/password_here/$DBPASS/" wp-config.php
+              sed -i "s/localhost/${DbHost}/" wp-config.php
+              set -x
+
+              # New since v46: the address comes from the load balancer in this stack,
+              # not from the database. No siteurl.sh and no UPDATE by hand.
+              # The salts come from one file on EFS, so all servers sign the
+              # login cookies the same way and nobody gets logged out.
+              cat > /tmp/novatrix.php <<'EOF'
+              define('WP_HOME', 'http://${LoadBalancer.DNSName}');
+              define('WP_SITEURL', 'http://${LoadBalancer.DNSName}');
+              require __DIR__ . '/wp-content/novatrix-salts.php';
+              EOF
+              sed -i "/put your unique phrase here/d" wp-config.php
+              sed -i "/DB_COLLATE/r /tmp/novatrix.php" wp-config.php
+
+              # Who is first? mkdir on EFS succeeds for exactly one server, even if
+              # two start in the same second. That one makes the salts and installs
+              # WordPress. On a running site the folder exists and this is skipped.
+              if mkdir $WPC/novatrix-first 2>/dev/null; then
+                # Only the first server fills the shared disk with themes and plugins
+                cp -rn /tmp/wp-content-start/. $WPC/
+                { echo "<?php"; curl -sS https://api.wordpress.org/secret-key/1.1/salt/; } \
+                  > $WPC/novatrix-salts.tmp
+                mv $WPC/novatrix-salts.tmp $WPC/novatrix-salts.php
+                set +x
+                ADMINPASS=$(aws secretsmanager get-secret-value --region ${AWS::Region} \
+                  --secret-id ${WpAdminSecretArn} --query SecretString --output text \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+                wp core install --path=/var/www/html --allow-root \
+                  --url="http://${LoadBalancer.DNSName}" --title="Novatrix" \
+                  --admin_user=novatrix-admin --admin_password="$ADMINPASS" \
+                  --admin_email=admin@novatrix.example --skip-email
+                set -x
+              fi
+
+              # Every server, the first one too, waits until the salts and the
+              # install are in place. Stops with an error after ten minutes.
+              for i in $(seq 1 60); do
+                [ -f $WPC/novatrix-salts.php ] \
+                  && wp core is-installed --path=/var/www/html --allow-root && break
+                sleep 10
+              done
+              wp core is-installed --path=/var/www/html --allow-root
+
+              # The visible part of a version: which version and which server answered.
+              # curl against it during a rollout shows v1 being replaced by v2.
+              TOKEN=$(curl -sS -X PUT http://169.254.169.254/latest/api/token \
+                -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+              ID=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" \
+                http://169.254.169.254/latest/meta-data/instance-id)
+              AZ=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" \
+                http://169.254.169.254/latest/meta-data/placement/availability-zone)
+              echo "v${AppVersion} $ID $AZ" > /var/www/html/version.txt
+
+              # The web server must own the files. Then start PHP and the web server.
+              chown -R apache:apache /var/www/html
+              systemctl enable --now php-fpm httpd
+
+              # Tell CloudFormation this server is ready, but only once WordPress
+              # answers 200 here. The rolling update waits for this signal before it
+              # replaces the next server. No signal means the update is rolled back.
+              for i in $(seq 1 30); do
+                curl -sf -o /dev/null http://localhost/wp-login.php && break
+                sleep 10
+              done
+              curl -sf -o /dev/null http://localhost/wp-login.php
+              /opt/aws/bin/cfn-signal -e 0 --region ${AWS::Region} \
+                --stack ${AWS::StackName} --resource WebGroup
+            # Values filled in by !Sub above, read from the data stack
+            - EfsId: !ImportValue {"Fn::Sub": "${Prefix}-efs-id"}
+              DbHost: !ImportValue {"Fn::Sub": "${Prefix}-db-endpoint"}
+              DbSecretArn: !ImportValue {"Fn::Sub": "${Prefix}-db-secret-arn"}
+              WpAdminSecretArn: !ImportValue {"Fn::Sub": "${Prefix}-wp-admin-secret-arn"}
+              AgentConfigName: !ImportValue {"Fn::Sub": "${Prefix}-agent-config-name"}
+  # The group: two servers as a floor, four as a ceiling, spread over both zones.
+  # No DesiredCapacity on purpose: it starts at MinSize, and a later deploy
+  # never pushes a group that has scaled out back down to two.
+  WebGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    # On create: the stack is not done until both servers have signalled
+    # that WordPress answers
+    CreationPolicy:
+      ResourceSignal:
+        Count: 2
+        Timeout: PT20M
+    # On a new launch template version: replace the servers one at a time.
+    # At least one always serves, and the next one is not touched until
+    # the new server has signalled that WordPress answers.
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        WaitOnResourceSignals: true
+        PauseTime: PT20M
+        # The group must not scale or heal on its own in the middle of a rollout
+        SuspendProcesses:
+          - HealthCheck
+          - ReplaceUnhealthy
+          - AZRebalance
+          - AlarmNotification
+          - ScheduledActions
+    Properties:
+      AutoScalingGroupName: !Sub ${Prefix}-web-asg
+      # Always the newest version of the blueprint. When the user data changes
+      # the version number changes, and that is what starts the rolling update.
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: "2"
+      MaxSize: "4"
+      # One public subnet per zone. The private ones have no way to the internet.
+      VPCZoneIdentifier:
+        - !ImportValue {"Fn::Sub": "${Prefix}-public-subnet-id"}
+        - !ImportValue {"Fn::Sub": "${Prefix}-public-b-subnet-id"}
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      # Replace servers that run but do not answer, not only crashed ones.
+      # The user data installs everything at start, so it gets ten minutes
+      # instead of the five that was enough with the ready-made AMI.
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 600
+
+  # Target tracking: keep the average CPU of the group near 50 percent.
+  # 50 leaves room: if one zone goes down, the server left takes double load.
+  CpuPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref WebGroup
+      PolicyType: TargetTrackingScaling
+      # A new server's CPU is not counted until it has had time to start
+      EstimatedInstanceWarmup: 300
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50
+
+Outputs:
+  SiteUrl:
+    Value: !Sub "http://${LoadBalancer.DNSName}"
+  # The names CloudWatch uses as dimensions, read by novatrix-overvakning.
+  # The long form app/novatrix-alb/abc123 is only known after the deploy.
+  LoadBalancerFullName:
+    Value: !GetAtt LoadBalancer.LoadBalancerFullName
+    Export: {Name: !Sub "${Prefix}-alb-full-name"}
+  TargetGroupFullName:
+    Value: !GetAtt TargetGroup.TargetGroupFullName
+    Export: {Name: !Sub "${Prefix}-tg-full-name"}
+  AsgName:
+    Value: !Ref WebGroup
+    Export: {Name: !Sub "${Prefix}-asg-name"}

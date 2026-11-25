@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Novatrix data (v45 as code): the database, its password in Secrets Manager
+  and EFS for wp-content. Needs novatrix-natverk. Stack name: novatrix-data.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: novatrix
+    AllowedPattern: "[a-z][a-z0-9-]*"
+    Description: Same prefix as the network stack
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues: [db.t3.micro, db.t3.small]
+  BackupDays:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 35
+    Description: Days of automatic backup. Free plan allows at most 1, use 14 on a paid account
+
+Resources:
+  # The database may only live in the two private subnets
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${Prefix}-db-subnets
+      DBSubnetGroupDescription: Private subnets for the Novatrix database
+      SubnetIds:
+        - !ImportValue {"Fn::Sub": "${Prefix}-private-a-id"}
+        - !ImportValue {"Fn::Sub": "${Prefix}-private-b-id"}
+
+  # AWS makes up the password, nobody types it. Only letters and digits,
+  # so the web server can put it in wp-config.php with sed.
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub Admin password for ${Prefix}-db
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludePunctuation: true
+
+  # Password for the WordPress admin user. The first server installs WordPress
+  # itself with WP-CLI, so nobody has to open the installer after a rebuild.
+  WpAdminSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub WordPress admin password for ${Prefix}
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "novatrix-admin"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludePunctuation: true
+
+  # Same database as in v45. MariaDB 11.4, because 11.8 requires TLS.
+  # DeletionPolicy Delete: no paid final snapshot when the stack is removed,
+  # the long-term backups go to the S3 bucket instead.
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub ${Prefix}-db
+      Engine: mariadb
+      EngineVersion: "11.4"
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: "20"
+      StorageEncrypted: true
+      MasterUsername: admin
+      # Fetched from the secret when the database is created, never written in a file
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}"
+      DBName: wordpress
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-db-sg-id"}
+      # No public address, only reachable inside the VPC
+      PubliclyAccessible: false
+      MultiAZ: false
+      # Free plan allows 1 day. The 14 days of history are kept in the S3 bucket.
+      BackupRetentionPeriod: !Ref BackupDays
+      DeleteAutomatedBackups: true
+      # Added later as the test change for version control
+      Tags:
+        - Key: Course
+          Value: MOV25
+
+  # Shared disk for wp-content, so uploaded images survive a new web server
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub ${Prefix}-efs
+
+  # One mount target in each private subnet, guarded by the EFS group
+  MountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !ImportValue {"Fn::Sub": "${Prefix}-private-a-id"}
+      SecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-efs-sg-id"}
+
+  MountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !ImportValue {"Fn::Sub": "${Prefix}-private-b-id"}
+      SecurityGroups:
+        - !ImportValue {"Fn::Sub": "${Prefix}-efs-sg-id"}
+
+# Exports that the web stack reads
+Outputs:
+  DbSecretArn:
+    Value: !Ref DbSecret
+    Export: {Name: !Sub "${Prefix}-db-secret-arn"}
+  DbEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+    Export: {Name: !Sub "${Prefix}-db-endpoint"}
+  FileSystemId:
+    Value: !Ref FileSystem
+    Export: {Name: !Sub "${Prefix}-efs-id"}
+  WpAdminSecretArn:
+    Value: !Ref WpAdminSecret
+    Export: {Name: !Sub "${Prefix}-wp-admin-secret-arn"}

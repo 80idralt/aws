@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Starter for the monitoring stack: the alarm topic, a mail subscription and one alarm. Stack name: novatrix-overvakning"
+
+# Build on this: alarms on memory, disk and unhealthy servers, the dashboard, and the
+# CloudWatch agent for the servers in your own code. Same pattern: Type, Properties, !Ref.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: novatrix
+    AllowedPattern: "[a-z][a-z0-9-]*"
+  AlarmEmail:
+    Type: String
+    Description: Where the alarms are sent. Confirm the subscription in the mail from AWS.
+  AsgName:
+    Type: String
+    Default: novatrix-web-asg
+    Description: The Auto Scaling group, from the console or from your scaling stack
+
+Resources:
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Prefix}-larm
+
+  AlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # Average CPU in the whole group, not one instance that may be gone tomorrow
+  CpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-cpu-hog
+      AlarmDescription: Average CPU in the web group is high, check scaling and Activity
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - {Name: AutoScalingGroupName, Value: !Ref AsgName}
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 70
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+Outputs:
+  AlarmTopicArn:
+    Value: !Ref AlarmTopic

@@ -1,0 +1,25 @@
+# Logs Insights, log group /novatrix/httpd/access. Paste one query at a time.
+# Apache combined format: ip - - [time] "METHOD path PROTOCOL" status bytes "referer" "user agent"
+
+# 1. Requests per status code, without the load balancer's health checks
+filter @message not like /ELB-HealthChecker/
+| parse @message '* - - [*] "* * *" * * *' as ip, time, method, path, proto, status, bytes, rest
+| stats count(*) as requests by status
+| sort requests desc
+
+# 2. Requests per server (one log stream per instance)
+filter @message not like /ELB-HealthChecker/
+| stats count(*) as requests by @logStream
+
+# 3. The latest server errors, 500 to 599
+filter @message not like /ELB-HealthChecker/
+| parse @message '* - - [*] "* * *" * * *' as ip, time, method, path, proto, status, bytes, rest
+| filter status like /^5/
+| fields @timestamp, @logStream, path, status
+| sort @timestamp desc
+| limit 20
+
+# 4. Log group /novatrix/httpd/error: the latest rows from every server
+fields @timestamp, @logStream, @message
+| sort @timestamp desc
+| limit 20
