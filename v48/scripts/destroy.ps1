@@ -1,4 +1,4 @@
-# Novatrix v47: removes the environment in reverse order, scaling, web, data, network.
+# Novatrix v48: removes the environment in reverse order, monitoring, scaling, web, data, network.
 # Run:  .\destroy.ps1                       removes novatrix
 #       .\destroy.ps1 -Prefix novatrix-test  removes the copy
 # The buckets and the key pair are not part of any stack and stay.
@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
 # Reverse order. CloudFormation refuses to remove a stack whose exports are still in use.
-foreach ($Layer in "skala", "webb", "data", "natverk") {
+foreach ($Layer in "overvakning", "skala", "webb", "data", "natverk") {
     $Stack = "$Prefix-$Layer"
     Write-Host "River $Stack ..."
     aws cloudformation delete-stack --stack-name $Stack

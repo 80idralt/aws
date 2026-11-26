@@ -13,7 +13,7 @@ Varje veckomapp har en egen README som dokumenterar veckans arbete, med syfte, s
 - [x] [V45 - Storage och databas](v45/); WordPress med databasen i RDS och filerna på en delad disk i EFS samt backup till S3 som tas bort efter 14 dagar, byggt både i konsolen och från kod
 - [x] [V46 - IaC med CloudFormation](v46/); hela miljön som tre CloudFormation-stackar för nät, data och webb, byggd och riven med ett skript, med en testkopia, återskapning från en ren klon och backup som läses in i en nybyggd miljö
 - [x] [V47 - Skalbarhet och tillgänglighet](v47/)
-- [ ] [V48 - Monitorering och cloud native](v48/)
+- [x] [V48 - Monitorering och cloud native](v48/); CloudWatch-agent, central loggning, fem larm med mejl, dashboard och en sajtkoll i Lambda, allt som ett femte lager kod, med en strategi för att flytta WordPress till Fargate
 
 ## Om Novatrix
 

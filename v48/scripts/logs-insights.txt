@@ -15,9 +15,9 @@ filter @message not like /ELB-HealthChecker/
 filter @message not like /ELB-HealthChecker/
 | parse @message '* - - [*] "* * *" * * *' as ip, time, method, path, proto, status, bytes, rest
 | filter status like /^5/
-| fields @timestamp, @logStream, path, status
 | sort @timestamp desc
 | limit 20
+| display @timestamp, @logStream, path, status
 
 # 4. Log group /novatrix/httpd/error: the latest rows from every server
 fields @timestamp, @logStream, @message

@@ -1,6 +1,6 @@
-# Novatrix v47: builds the whole environment from four templates,
-# network, data, web and scaling.
-# Run:  .\deploy.ps1                       builds novatrix, version 1
+# Novatrix v48: builds the whole environment from five templates,
+# network, data, web, scaling and monitoring.
+# Run:  .\deploy.ps1                       builds novatrix, asks for the alarm mail
 #       .\deploy.ps1 -AppVersion 2         rolls out version 2, one server at a time
 #       .\deploy.ps1 -Prefix novatrix-test  builds a copy with other names
 # Needs: logged in with "aws login", key pair novatrix-key and the two buckets.
@@ -8,11 +8,15 @@
 
 param(
     [string]$Prefix = "novatrix",
-    [string]$AppVersion = "1"
+    [string]$AppVersion = "1",
+    # Asked for when the script starts, so the address is never in a file
+    [Parameter(Mandatory)][string]$AlarmEmail
 )
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
+# Read the templates as UTF-8, otherwise å and ö break on Windows
+$env:AWS_CLI_FILE_ENCODING = "UTF-8"
 
 # The only values to change when building in another account
 $KeyName      = "novatrix-key"
@@ -24,8 +28,8 @@ $MyIp = (Invoke-RestMethod "https://checkip.amazonaws.com").Trim()
 
 Set-Location $PSScriptRoot
 
-# Validate all four first, so a typo stops us before anything is built
-foreach ($File in "natverk.yaml", "data.yaml", "webb.yaml", "skala.yaml") {
+# Validate all five first, so a typo stops us before anything is built
+foreach ($File in "natverk.yaml", "data.yaml", "webb.yaml", "skala.yaml", "overvakning.yaml") {
     aws cloudformation validate-template --template-body "file://$File" | Out-Null
     Write-Host "$File validerad"
 }
@@ -51,6 +55,12 @@ aws cloudformation deploy --template-file webb.yaml --stack-name "$Prefix-webb" 
 aws cloudformation deploy --template-file skala.yaml --stack-name "$Prefix-skala" `
     --no-fail-on-empty-changeset `
     --parameter-overrides "Prefix=$Prefix" "KeyName=$KeyName" "AppVersion=$AppVersion"
+
+# Monitoring last, it reads the names of the group, load balancer and site
+# from the scaling stack. CAPABILITY_IAM: the site check gets its own role.
+aws cloudformation deploy --template-file overvakning.yaml --stack-name "$Prefix-overvakning" `
+    --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM `
+    --parameter-overrides "Prefix=$Prefix" "AlarmEmail=$AlarmEmail"
 
 $Url = aws cloudformation describe-stacks --stack-name "$Prefix-skala" `
     --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue" --output text

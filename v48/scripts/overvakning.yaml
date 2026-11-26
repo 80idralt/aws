@@ -1,23 +1,22 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Starter for the monitoring stack: the alarm topic, a mail subscription and one alarm. Stack name: novatrix-overvakning"
-
-# Build on this: alarms on memory, disk and unhealthy servers, the dashboard, and the
-# CloudWatch agent for the servers in your own code. Same pattern: Type, Properties, !Ref.
+Description: >
+  Novatrix monitoring (v48 VG): the alarm topic with a mail subscription,
+  alarms on CPU, memory, disk and unhealthy servers, and the dashboard.
+  Built last and removed first, it reads the exports of novatrix-skala.
+  Stack name: novatrix-overvakning.
 
 Parameters:
   Prefix:
     Type: String
     Default: novatrix
     AllowedPattern: "[a-z][a-z0-9-]*"
+  # Given at deploy time, never written in a file
   AlarmEmail:
     Type: String
     Description: Where the alarms are sent. Confirm the subscription in the mail from AWS.
-  AsgName:
-    Type: String
-    Default: novatrix-web-asg
-    Description: The Auto Scaling group, from the console or from your scaling stack
 
 Resources:
+  # Every alarm sends here, everyone who subscribes gets every alarm
   AlarmTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -30,21 +29,245 @@ Resources:
       Protocol: email
       Endpoint: !Ref AlarmEmail
 
-  # Average CPU in the whole group, not one instance that may be gone tomorrow
+  # Alarm on the group, troubleshoot on the server. The servers are replaced,
+  # the group stays, so no alarm points at an instance id.
+
+  # Average CPU in the whole group. Scaling aims at 50, so 70 means
+  # scaling does not keep up or the ceiling of four servers is reached.
   CpuAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub ${Prefix}-cpu-hog
-      AlarmDescription: Average CPU in the web group is high, check scaling and Activity
+      AlarmDescription: Average CPU in the web group is above 70 percent. Check Activity in the group, is it at max 4? Then decide if max should be raised.
       Namespace: AWS/EC2
       MetricName: CPUUtilization
       Dimensions:
-        - {Name: AutoScalingGroupName, Value: !Ref AsgName}
+        - {Name: AutoScalingGroupName, Value: !ImportValue {"Fn::Sub": "${Prefix}-asg-name"}}
       Statistic: Average
       Period: 300
       EvaluationPeriods: 1
       Threshold: 70
       ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  # Memory on the worst server. An average could hide one server at 95.
+  # A t3.micro has 1 GB, when it runs out PHP stops answering.
+  MemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-minne
+      AlarmDescription: Memory on a web server is above 85 percent. Find the server in mem_used_percent per InstanceId, log in and check what uses the memory.
+      Namespace: CWAgent
+      MetricName: mem_used_percent
+      Dimensions:
+        - {Name: AutoScalingGroupName, Value: !ImportValue {"Fn::Sub": "${Prefix}-asg-name"}}
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  # The root disk on the worst server, growing logs can fill it
+  DiskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-disk
+      AlarmDescription: The disk on a web server is above 85 percent full. Find the server in disk_used_percent per InstanceId, look for growing files such as logs.
+      Namespace: CWAgent
+      MetricName: disk_used_percent
+      Dimensions:
+        - {Name: AutoScalingGroupName, Value: !ImportValue {"Fn::Sub": "${Prefix}-asg-name"}}
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  # A server that fails the health check three minutes in a row.
+  # Three, so a server that is still starting does not wake anyone.
+  # No data means no unhealthy servers, so missing data counts as OK.
+  UnhealthyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-unhealthy
+      AlarmDescription: A web server has failed the health check for 3 minutes. Read Reason under Targets in the target group, then the error log.
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - {Name: TargetGroup, Value: !ImportValue {"Fn::Sub": "${Prefix}-tg-full-name"}}
+        - {Name: LoadBalancer, Value: !ImportValue {"Fn::Sub": "${Prefix}-alb-full-name"}}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  # One page with the state of everything, the most important at the top.
+  # Same JSON as the console's View source, but the names come from the
+  # stacks, so the dashboard still works after a rebuild.
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${Prefix}-drift
+      DashboardBody: !Sub
+        - |
+          {
+            "widgets": [
+              {"type": "alarm", "x": 0, "y": 0, "width": 24, "height": 3,
+               "properties": {"title": "Larm", "alarms": [
+                 "${CpuAlarm.Arn}", "${MemoryAlarm.Arn}",
+                 "${DiskAlarm.Arn}", "${UnhealthyAlarm.Arn}",
+                 "${SiteAlarm.Arn}"]}},
+              {"type": "metric", "x": 0, "y": 3, "width": 12, "height": 6,
+               "properties": {"title": "CPU, snitt i gruppen", "view": "timeSeries",
+                 "region": "${AWS::Region}", "stat": "Average", "period": 300,
+                 "metrics": [["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", "${AsgName}"]]}},
+              {"type": "metric", "x": 12, "y": 3, "width": 12, "height": 6,
+               "properties": {"title": "Minne och disk, högsta servern", "view": "timeSeries",
+                 "region": "${AWS::Region}", "stat": "Maximum", "period": 300,
+                 "metrics": [["CWAgent", "mem_used_percent", "AutoScalingGroupName", "${AsgName}"],
+                             ["CWAgent", "disk_used_percent", "AutoScalingGroupName", "${AsgName}"]]}},
+              {"type": "metric", "x": 0, "y": 9, "width": 12, "height": 6,
+               "properties": {"title": "Friska och sjuka servrar", "view": "timeSeries",
+                 "region": "${AWS::Region}", "stat": "Maximum", "period": 60,
+                 "metrics": [["AWS/ApplicationELB", "HealthyHostCount", "TargetGroup", "${TgName}", "LoadBalancer", "${AlbName}"],
+                             ["AWS/ApplicationELB", "UnHealthyHostCount", "TargetGroup", "${TgName}", "LoadBalancer", "${AlbName}"]]}},
+              {"type": "metric", "x": 12, "y": 9, "width": 12, "height": 6,
+               "properties": {"title": "Anrop", "view": "singleValue", "setPeriodToTimeRange": true,
+                 "region": "${AWS::Region}", "stat": "Sum", "period": 300,
+                 "metrics": [["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${AlbName}"]]}},
+              {"type": "metric", "x": 0, "y": 15, "width": 24, "height": 6,
+               "properties": {"title": "Sajtkoll utifrån, svarstid", "view": "timeSeries",
+                 "region": "${AWS::Region}", "stat": "Average", "period": 300,
+                 "metrics": [["Novatrix/SiteCheck", "ResponseTimeMs", "Site", "${Prefix}"]]}}
+            ]
+          }
+        - AsgName: !ImportValue {"Fn::Sub": "${Prefix}-asg-name"}
+          TgName: !ImportValue {"Fn::Sub": "${Prefix}-tg-full-name"}
+          AlbName: !ImportValue {"Fn::Sub": "${Prefix}-alb-full-name"}
+
+  # Cloud native step 1: a small job without a server. Every five minutes it
+  # asks the site like a visitor and sends Available (1/0) and ResponseTimeMs.
+  SiteCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-sajtkoll
+      RetentionInDays: 14
+
+  # Only its own log group, and metrics only in its own namespace
+  SiteCheckRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${Prefix}-sajtkoll
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt SiteCheckLogGroup.Arn
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals: {"cloudwatch:namespace": "Novatrix/SiteCheck"}
+
+  SiteCheckFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: SiteCheckLogGroup
+    Properties:
+      FunctionName: !Sub ${Prefix}-sajtkoll
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Timeout: 20
+      Role: !GetAtt SiteCheckRole.Arn
+      Environment:
+        Variables:
+          SITE_URL: !ImportValue {"Fn::Sub": "${Prefix}-site-url"}
+          SITE_NAME: !Ref Prefix
+      # Same code as sajtkoll.py. ZipFile puts it in index.py.
+      Code:
+        ZipFile: |
+          import os
+          import time
+          import urllib.request
+
+          import boto3
+
+          cloudwatch = boto3.client("cloudwatch")
+
+
+          def lambda_handler(event, context):
+              url = os.environ["SITE_URL"] + "/wp-login.php"
+              start = time.time()
+              try:
+                  with urllib.request.urlopen(url, timeout=10) as answer:
+                      ok = 1 if answer.status == 200 else 0
+              except Exception as error:
+                  print("Check failed:", error)
+                  ok = 0
+              ms = (time.time() - start) * 1000
+              site = [{"Name": "Site", "Value": os.environ["SITE_NAME"]}]
+              cloudwatch.put_metric_data(Namespace="Novatrix/SiteCheck", MetricData=[
+                  {"MetricName": "Available", "Dimensions": site, "Value": ok, "Unit": "Count"},
+                  {"MetricName": "ResponseTimeMs", "Dimensions": site, "Value": ms, "Unit": "Milliseconds"},
+              ])
+              print(f"{url} ok={ok} {ms:.0f} ms")
+              return {"ok": ok, "ms": round(ms)}
+
+  # The clock that starts the function
+  SiteCheckSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${Prefix}-sajtkoll-schema
+      ScheduleExpression: rate(5 minutes)
+      Targets:
+        - {Id: sajtkoll, Arn: !GetAtt SiteCheckFunction.Arn}
+
+  # Without this the clock ticks but is not allowed to start the function
+  SiteCheckPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SiteCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SiteCheckSchedule.Arn
+
+  # The site has not answered two checks in a row. Missing data counts as
+  # down: if the check itself stops, we want to know that too.
+  SiteAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-sajtkoll
+      AlarmDescription: The site does not answer visitors, seen from outside. Open the site, check the target group and the Lambda log for the error.
+      Namespace: Novatrix/SiteCheck
+      MetricName: Available
+      Dimensions:
+        - {Name: Site, Value: !Ref Prefix}
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
       AlarmActions: [!Ref AlarmTopic]
       OKActions: [!Ref AlarmTopic]
 

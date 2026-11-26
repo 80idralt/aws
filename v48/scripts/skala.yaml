@@ -297,6 +297,7 @@ Resources:
 Outputs:
   SiteUrl:
     Value: !Sub "http://${LoadBalancer.DNSName}"
+    Export: {Name: !Sub "${Prefix}-site-url"}
   # The names CloudWatch uses as dimensions, read by novatrix-overvakning.
   # The long form app/novatrix-alb/abc123 is only known after the deploy.
   LoadBalancerFullName:
